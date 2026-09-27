@@ -8,6 +8,7 @@ ChatStudio — /api/routing/* — админ-панель AI Router (разде�
 from __future__ import annotations
 
 import os
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
@@ -536,7 +537,6 @@ async def model_status(
             "sample_size": total,
         })
     return {"models": out, "window": 10}
-}
 
 # --------------------------------------------------------------------------
 # Routing sets (раздел 28, 33)
