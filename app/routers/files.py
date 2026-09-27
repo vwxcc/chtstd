@@ -175,6 +175,14 @@ async def download_file(
     if base not in full_path.parents or not full_path.exists():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Файл отсутствует на диске.")
 
+    # Images must be rendered inline so <img> can use the download endpoint
+    # as a thumbnail instead of triggering a browser download.
+    if (f.mime_type and f.mime_type.startswith("image/")):
+        return FileResponse(
+            path=full_path,
+            media_type=f.mime_type,
+            headers={"Content-Disposition": "inline"},
+        )
     return FileResponse(path=full_path, filename=f.original_name, media_type=f.mime_type)
 
 
