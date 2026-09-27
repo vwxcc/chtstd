@@ -62,11 +62,10 @@ class Settings(BaseSettings):
     max_spreadsheet_sheets: int = Field(default=100, alias="MAX_SPREADSHEET_SHEETS")
     max_presentation_slides: int = Field(default=500, alias="MAX_PRESENTATION_SLIDES")
 
-    allowed_file_extensions: tuple[str, ...] = (
-        "pdf", "docx", "txt", "md", "csv", "xls", "xlsx",
-        "ppt", "pptx", "json", "xml", "zip",
-        "png", "jpg", "jpeg", "gif", "webp",
-    )
+    # Раньше здесь был жёсткий whitelist. Для ChatStudio разрешаем любые расширения:
+    # бинарные файлы сохраняются как есть, а известные текстовые форматы дополнительно
+    # извлекаются в контекст модели.
+    allowed_file_extensions: tuple[str, ...] = ()
 
     # --- AI / генерация ---
     request_timeout: int = Field(default=300, alias="REQUEST_TIMEOUT")
