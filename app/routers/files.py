@@ -7,7 +7,7 @@ from __future__ import annotations
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,7 +55,7 @@ async def _get_owned_file(session: AsyncSession, file_id: str, user_id: str) -> 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def upload_files(
     request: Request,
-    files: list[UploadFile] = [],
+    files: list[UploadFile] = File(...),
 
     settings: Settings = Depends(get_settings),
     user: User = Depends(get_current_user),
