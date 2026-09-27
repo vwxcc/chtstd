@@ -518,6 +518,9 @@ let generating = false;
 let authRegister = false;
 let models = [];
 let taskRoutes = [];
+let providers = [];
+let plans = [];
+let routingSets = [];
 
 async function api(path, options = {}) {
   options.credentials = "same-origin";
@@ -942,8 +945,14 @@ async function stopGeneration() {
 async function loadRoutingInfo() {
   if (!me?.is_admin) return;
   try {
-    [models, taskRoutes] = await Promise.all([api("/api/routing/models"), api("/api/routing/task-routes")]);
-  } catch {}
+    [providers, models, routingSets, taskRoutes, plans] = await Promise.all([
+      api("/api/routing/providers"),
+      api("/api/routing/models"),
+      api("/api/routing/routing-sets"),
+      api("/api/routing/task-routes"),
+      api("/api/routing/plans")
+    ]);
+  } catch(e) { toast("Не удалось загрузить админские настройки: "+e.message); }
 }
 
 function renderTopModelDropdown() {
@@ -972,15 +981,56 @@ $("upgradeLinkSidebar").onclick = () => toast("Тарифная система �
 
 function renderModalBody() {
   const body = $("modalBody");
-  if (modalTab === "general") {
-    body.innerHTML = `<h3>Общие</h3><div class="field-row"><div><div class="lbl">Аккаунт</div><div class="sub">${esc(me?.name||"")} · ${esc(me?.email||"")}</div></div><button class="newchat-btn" style="width:auto" onclick="logout()">Выйти</button></div><div class="field-row"><div><div class="lbl">Тема</div><div class="sub">Следует системной теме браузера</div></div><div class="seg"><button onclick="setTheme('light')">Светлая</button><button onclick="setTheme('dark')">Тёмная</button></div></div>`;
-  } else if (modalTab === "limits") {
-    body.innerHTML = `<h3>Модели и параметры</h3>${models.length ? models.map(m=>`<div class="field-row"><div><div class="lbl">${esc(m.display_name)}</div><div class="sub">${esc(m.model_name)} · temperature ${m.temperature} · ${m.max_tokens} max tokens · timeout ${m.timeout}s</div></div><span class="badge ${m.enabled?'pro':'free'}">${m.enabled?'ON':'OFF'}</span></div>`).join("") : '<p style="color:var(--text-muted);font-size:13px">Информация о моделях доступна администратору после настройки AI Router.</p>'}`;
-  } else if (modalTab === "routing") {
-    body.innerHTML = `<h3>Маршрутизация</h3>${taskRoutes.length ? taskRoutes.map(r=>`<div class="field-row"><div><div class="lbl">${esc(r.task_name)}</div><div class="sub">${esc(r.routing_set_name || "не назначен")}</div></div><span class="badge ${r.enabled?'pro':'free'}">${r.enabled?'ON':'OFF'}</span></div>`).join("") : '<p style="color:var(--text-muted);font-size:13px">Routing information доступна администратору.</p>'}`;
-  } else {
-    body.innerHTML = `<h3>Подписка</h3><p style="color:var(--text-muted);font-size:13px">Платёжная и тарифная система пока не подключена. Ограничения файлов и запросов задаются сервером.</p>`;
+  if (!me?.is_admin && modalTab !== "general" && modalTab !== "plan") {
+    body.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Этот раздел доступен администратору.</p>';
+    return;
   }
+  if (modalTab === "general") {
+    body.innerHTML = '<h3>Общие</h3><div class="field-row"><div><div class="lbl">Аккаунт</div><div class="sub">'+esc(me?.name||"")+' · '+esc(me?.email||"")+'</div></div><button class="newchat-btn" style="width:auto" onclick="logout()">Выйти</button></div><div class="field-row"><div><div class="lbl">Тема</div><div class="sub">Светлая или тёмная тема интерфейса</div></div><div class="seg"><button onclick="setTheme(\'light\')">Светлая</button><button onclick="setTheme(\'dark\')">Тёмная</button></div></div>';
+    return;
+  }
+  if (modalTab === "limits") {
+    if (!me?.is_admin) { body.innerHTML='<p style="color:var(--text-muted)">Только администратор.</p>'; return; }
+    const providerOptions=providers.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>').join("");
+    const modelRows=models.map(m=>'<div class="field-row"><div><div class="lbl">'+esc(m.display_name)+'</div><div class="sub">'+esc(m.model_name)+' · '+m.max_tokens+' токенов · '+m.timeout+'с</div></div><button class="icon-btn" data-admin-disable-model="'+m.id+'">'+(m.enabled?'Отключить':'Включить')+'</button></div>').join("");
+    const providerRows=providers.map(p=>'<div class="field-row"><div><div class="lbl">'+esc(p.name)+'</div><div class="sub">'+esc(p.base_url)+' · '+esc(p.api_key_env)+'</div></div><span class="badge '+(p.enabled?'pro':'free')+'">'+(p.enabled?'ON':'OFF')+'</span></div>').join("");
+    body.innerHTML='<h3>Провайдеры</h3>'+providerRows+
+      '<div class="notice-box">Добавление провайдера</div><div class="field-row"><input id="newProviderName" class="selectlike" placeholder="Название"><input id="newProviderUrl" class="selectlike" placeholder="https://host/v1"><input id="newProviderKey" class="selectlike" placeholder="API_KEY_ENV"><button class="newchat-btn" id="addProviderBtn" style="width:auto">Добавить</button></div>'+
+      '<h3 style="margin-top:18px">Модели</h3>'+modelRows+
+      '<div class="notice-box">Добавление модели</div><div class="field-row"><select id="newModelProvider" class="plain">'+providerOptions+'</select><input id="newModelDisplay" class="selectlike" placeholder="Название"><input id="newModelName" class="selectlike" placeholder="model-id"><input id="newModelTokens" class="selectlike" type="number" value="120000"><button class="newchat-btn" id="addModelBtn" style="width:auto">Добавить</button></div>';
+    bindAdminControls();
+    return;
+  }
+  if (modalTab === "routing") {
+    if (!me?.is_admin) { body.innerHTML='<p style="color:var(--text-muted)">Только администратор.</p>'; return; }
+    const setOptions=routingSets.map(r=>'<option value="'+esc(r.id)+'">'+esc(r.name)+'</option>').join("");
+    const routes=taskRoutes.map(r=>'<div class="field-row"><div><div class="lbl">'+esc(r.task_name)+'</div><div class="sub">'+esc(r.routing_set_name||"не назначен")+'</div></div><select class="plain" data-route-task="'+esc(r.task_name)+'"><option value="">Не назначен</option>'+setOptions+'</select><button class="newchat-btn" data-save-route="'+esc(r.task_name)+'" style="width:auto">Сохранить</button></div>').join("");
+    body.innerHTML='<h3>Routing sets</h3>'+routingSets.map(r=>'<div class="field-row"><div><div class="lbl">'+esc(r.name)+'</div><div class="sub">'+r.entries.length+' моделей</div></div></div>').join("")+
+      '<div class="field-row"><input id="newRoutingName" class="selectlike" placeholder="Название routing set"><button class="newchat-btn" id="addRoutingBtn" style="width:auto">Добавить</button></div>'+
+      '<h3 style="margin-top:18px">Task routes</h3>'+routes;
+    taskRoutes.forEach(r=>{const el=document.querySelector('[data-route-task="'+r.task_name+'"]');if(el)el.value=r.routing_set_id||"";});
+    bindAdminControls();
+    return;
+  }
+  if (modalTab === "plan") {
+    if (!me?.is_admin) {
+      const p=me?.plan_display_name||"Free";
+      body.innerHTML='<h3>Ваш тариф</h3><div class="plan-card"><h4>'+esc(p)+'</h4><div class="sub">Лимиты назначаются администратором.</div></div>';
+      return;
+    }
+    body.innerHTML='<h3>Тарифы</h3>'+plans.map(p=>'<div class="plan-card '+(p.name==="pro"?'pro':'')+'"><h4>'+esc(p.display_name)+' <span style="font-size:10px;color:var(--text-faint)">('+esc(p.name)+')</span></h4><div class="field-row"><span>Запросов / 24ч</span><input class="selectlike" type="number" data-plan-field="'+p.name+':requests_per_day" value="'+p.requests_per_day+'"></div><div class="field-row"><span>Макс. токенов</span><input class="selectlike" type="number" data-plan-field="'+p.name+':max_tokens" value="'+p.max_tokens+'"></div><div class="field-row"><span>Макс. файлов</span><input class="selectlike" type="number" data-plan-field="'+p.name+':max_files_per_request" value="'+p.max_files_per_request+'"></div><div class="field-row"><span>Размер файлов</span><input class="selectlike" type="number" data-plan-field="'+p.name+':max_total_file_size" value="'+p.max_total_file_size+'"></div><button class="newchat-btn" data-save-plan="'+p.name+'">Сохранить тариф</button></div>').join("");
+    bindAdminControls();
+  }
+}
+async function bindAdminControls(){
+  const addProvider=$("addProviderBtn");
+  if(addProvider) addProvider.onclick=async()=>{try{await api("/api/routing/providers",{method:"POST",body:JSON.stringify({name:$("newProviderName").value,base_url:$("newProviderUrl").value,api_key_env:$("newProviderKey").value,enabled:true})});await loadRoutingInfo();renderModalBody();toast("Провайдер добавлен");}catch(e){toast(e.message)}};
+  const addModel=$("addModelBtn");
+  if(addModel) addModel.onclick=async()=>{try{await api("/api/routing/models",{method:"POST",body:JSON.stringify({provider_id:$("newModelProvider").value,display_name:$("newModelDisplay").value,model_name:$("newModelName").value,max_tokens:Number($("newModelTokens").value||120000),temperature:.2,timeout:300,enabled:true})});await loadRoutingInfo();renderModalBody();toast("Модель добавлена");}catch(e){toast(e.message)}};
+  const addRouting=$("addRoutingBtn");
+  if(addRouting) addRouting.onclick=async()=>{try{await api("/api/routing/routing-sets",{method:"POST",body:JSON.stringify({name:$("newRoutingName").value})});await loadRoutingInfo();renderModalBody();toast("Routing set добавлен");}catch(e){toast(e.message)}};
+  document.querySelectorAll("[data-save-route]").forEach(btn=>btn.onclick=async()=>{const task=btn.dataset.saveRoute;const select=document.querySelector('[data-route-task="'+task+'"]');try{await api("/api/routing/task-routes/"+encodeURIComponent(task),{method:"PUT",body:JSON.stringify({routing_set_id:select.value||null,enabled:!!select.value})});await loadRoutingInfo();renderModalBody();toast("Маршрут сохранён");}catch(e){toast(e.message)}});
+  document.querySelectorAll("[data-save-plan]").forEach(btn=>btn.onclick=async()=>{const name=btn.dataset.savePlan;const get=k=>Number(document.querySelector('[data-plan-field="'+name+":"+k+'"]').value);try{await api("/api/routing/plans/"+name,{method:"PATCH",body:JSON.stringify({requests_per_day:get("requests_per_day"),max_tokens:get("max_tokens"),max_files_per_request:get("max_files_per_request"),max_total_file_size:get("max_total_file_size")})});await loadRoutingInfo();renderModalBody();toast("Тариф сохранён");}catch(e){toast(e.message)}});
 }
 function setTheme(theme) { document.documentElement.dataset.theme=theme; localStorage.setItem("chatstudio_theme",theme); }
 const savedTheme=localStorage.getItem("chatstudio_theme"); if(savedTheme) document.documentElement.dataset.theme=savedTheme;
