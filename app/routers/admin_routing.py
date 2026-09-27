@@ -243,7 +243,7 @@ async def update_model(
     return _model_public(model)
 
 
-@router.delete("/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/models/{model_id}", status_code=status.HTTP_200_OK)
 async def delete_model(
     model_id: str,
     request: Request,
@@ -352,7 +352,7 @@ async def set_routing_set_models(
     return await _routing_set_public(session, rs)
 
 
-@router.delete("/routing-sets/{routing_set_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/routing-sets/{routing_set_id}", status_code=status.HTTP_200_OK)
 async def delete_routing_set(
     routing_set_id: str,
     request: Request,
