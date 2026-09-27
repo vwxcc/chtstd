@@ -142,7 +142,7 @@ $("fileInput").onchange=async e=>{
 function renderAttachments(){$("attachments").innerHTML=uploaded.map((f,i)=>`<span class="filechip">📎 ${esc(f.original_name)} <button onclick="uploaded.splice(${i},1);renderAttachments()">×</button></span>` ).join("");$("pending").textContent=uploaded.length?uploaded.length+" файл(ов)":" "}
 $("prompt").addEventListener("input",()=>{const x=$("prompt");x.style.height="auto";x.style.height=Math.min(x.scrollHeight,220)+"px"});
 $("prompt").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendMessage()}});
-async function deleteChat(){if(!current||!confirm("Удалить этот чат?"))return;await api("/api/chats/"+current.id,{method:"DELETE"});current=null;chats=chats.filter(c=>c.id!==current?.id);await loadChats()}
+async function deleteChat(){if(!current||!confirm("Удалить этот чат?"))return;const id=current.id;await api("/api/chats/"+id,{method:"DELETE"});current=null;chats=chats.filter(c=>c.id!==id);await loadChats()}
 async function shareChat(){if(!current)return;try{const s=await api("/api/chats/"+current.id+"/share",{method:"POST"});$("shareUrl").value=location.origin+s.url_path;$("shareModal").classList.remove("hidden")}catch(e){alert(e.message)}}
 function closeShare(){$("shareModal").classList.add("hidden")}async function copyShare(){await navigator.clipboard.writeText($("shareUrl").value);closeShare()}
 function scrollBottom(){const t=$("thread");requestAnimationFrame(()=>t.scrollTop=t.scrollHeight)}
