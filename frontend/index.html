@@ -723,7 +723,11 @@ async function openChat(id, loadMessages = true) {
 
 function updateHeader() {
   const chat = chats.find(c => c.id === currentChatId);
-  $("modelSelectLabel").textContent = (models.find(m=>m.id===selectedModelId) || models.find(m=>m.enabled!==false) || models[0])?.display_name || "Qwen 3.5 35B";
+  const activeModel = models.find(m=>m.id===selectedModelId) || models.find(m=>m.enabled!==false) || models[0];
+  $("modelSelectLabel").textContent = activeModel?.display_name || "Qwen 3.5 35B";
+  const health = activeModel ? (modelHealth[activeModel.id] || {status:"green"}) : {status:"green"};
+  const dot = $("modelSelectBtn")?.querySelector(".dot");
+  if (dot) { dot.className = "dot " + health.status; }
   const activeModel = models.find(m=>m.id===selectedModelId) || models.find(m=>m.enabled!==false) || models[0];
   if(activeModel){selectedModelId=activeModel.id;localStorage.setItem("chatstudio_model_id",selectedModelId);}
   $("chatTitle").textContent = chat?.title || "Новый чат";
