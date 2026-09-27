@@ -739,7 +739,7 @@ function enhanceCodeBlocks(){
     if(codeEl.closest(".rich-code")) return;
     const pre=codeEl.parentElement, block=document.createElement("div"); block.className="rich-code";
     const head=document.createElement("div"); head.className="rich-code-head";
-    const langName=((codeEl.className||"").match(/language-([^\s]+)/)||[])[1]||"code";
+    let langName=((codeEl.className||"").match(/language-([^\s]+)/)||[])[1]||"python";
     const lang=document.createElement("span"); lang.className="code-lang"; lang.textContent=langName; head.appendChild(lang);
     ["copy","download","run"].forEach(function(action){const b=document.createElement("button");b.type="button";b.dataset.codeAction=action;b.textContent=action==="copy"?"Копировать":action==="download"?"Скачать":"Исполнить";head.appendChild(b);});
     const out=document.createElement("div"); out.className="code-output"; block.dataset.lang=langName; block.dataset.code=encodeURIComponent(codeEl.textContent);
@@ -749,7 +749,7 @@ function enhanceCodeBlocks(){
 async function handleCodeAction(button){
   const block=button.closest(".rich-code"), code=decodeURIComponent(block.dataset.code||""), action=button.dataset.codeAction, output=block.querySelector(".code-output");
   if(action==="copy"){await navigator.clipboard.writeText(code);button.textContent="Скопировано";setTimeout(function(){button.textContent="Копировать"},1200);return;}
-  if(action==="download"){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([code],{type:"text/plain;charset=utf-8"}));a.download="code.py";a.click();setTimeout(function(){URL.revokeObjectURL(a.href)},500);return;}
+  if(action==="download"){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([code],{type:"text/plain;charset=utf-8"}));a.download="code."+((block.dataset.lang||"txt").replace(/[^a-z0-9_-]/gi,"")||"txt");a.click();setTimeout(function(){URL.revokeObjectURL(a.href)},500);return;}
   output.className="code-output show"; output.textContent="Выполнение…";
   try{const result=await api("/api/code/execute",{method:"POST",body:JSON.stringify({language:"python",code:code})});output.className="code-output show"+(result.ok?"":" error");output.textContent=(result.stdout||"")+(result.stderr?((result.stdout?"\n":"")+result.stderr):"")||"Готово без вывода.";}catch(e){output.className="code-output show error";output.textContent=e.message;}
 }
