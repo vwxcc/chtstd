@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     session_cookie_name: str = Field(default="chatstudio_session", alias="SESSION_COOKIE_NAME")
     session_max_age_days: int = Field(default=30, alias="SESSION_MAX_AGE_DAYS")
     session_cookie_secure: bool = Field(default=True, alias="SESSION_COOKIE_SECURE")
-    csrf_protection: bool = Field(default=True, alias="CSRF_PROTECTION")
+    csrf_protection: bool = Field(default=False, alias="CSRF_PROTECTION")
 
     # --- Rate limiting ---
     auth_rate_window: int = Field(default=900, alias="AUTH_RATE_WINDOW")
