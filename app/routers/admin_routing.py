@@ -25,6 +25,7 @@ from app.database import (
     TaskRoute,
     User,
     Plan,
+    AIRequest,
     get_session,
 )
 from app.schemas import (
