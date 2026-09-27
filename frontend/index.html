@@ -139,7 +139,11 @@ a{color:var(--accent);}
   background:var(--bg-elev); font-size:13px; font-weight:600; cursor:pointer; position:relative;
 }
 .model-select:hover{ background:var(--bg-sunken); }
-.model-select .dot{ width:7px; height:7px; border-radius:50%; background:var(--success); }
+.model-select .dot{ width:7px; height:7px; border-radius:50%; background:var(--success); flex:0 0 7px; }
+.model-select .dot.green,.dropdown .status-dot.green{background:var(--success)}
+.model-select .dot.yellow,.dropdown .status-dot.yellow{background:#d6a300}
+.model-select .dot.red,.dropdown .status-dot.red{background:var(--danger)}
+.dropdown .status-dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex:0 0 7px}
 .topbar .spacer{ flex:1; }
 .topbar-badges{ display:flex; align-items:center; gap:8px; }
 .badge{
@@ -952,23 +956,40 @@ async function stopGeneration() {
   try { await api(`/api/requests/${currentRequestId}/cancel`, {method:"POST"}); } catch (e) { toast(e.message); }
 }
 
-async function loadRoutingInfo() {
-  if (!me?.is_admin) return;
+let modelHealth = {};
+
+async function loadModelHealth() {
   try {
-    [providers, models, routingSets, taskRoutes, plans] = await Promise.all([
-      api("/api/routing/providers"),
-      api("/api/routing/models"),
-      api("/api/routing/routing-sets"),
-      api("/api/routing/task-routes"),
-      api("/api/routing/plans")
-    ]);
-  } catch(e) { toast("Не удалось загрузить админские настройки: "+e.message); }
+    const data = await api("/api/routing/model-status");
+    modelHealth = {};
+    (data.models || []).forEach(item => { modelHealth[item.id] = item; });
+    renderTopModelDropdown();
+    updateHeader();
+  } catch(e) {}
+}
+
+async function loadRoutingInfo() {
+  try {
+    const requests = [api("/api/routing/model-status")];
+    if (me?.is_admin) requests.push(api("/api/routing/providers"), api("/api/routing/models"), api("/api/routing/routing-sets"), api("/api/routing/task-routes"), api("/api/routing/plans"));
+    const data = await Promise.all(requests);
+    const health = data[0];
+    modelHealth = {};
+    (health.models || []).forEach(item => { modelHealth[item.id] = item; });
+    if (me?.is_admin) [providers, models, routingSets, taskRoutes, plans] = data.slice(1);
+    else models = (health.models || []).map(item => ({id:item.id, display_name:item.display_name, model_name:"", enabled:true}));
+  } catch(e) { toast("Не удалось загрузить настройки моделей: "+e.message); }
 }
 
 function renderTopModelDropdown() {
   const dropdown = $("modelDropdown");
-  const list = models.filter(m => m.enabled !== false);
-  dropdown.innerHTML = list.length ? list.map(model => `<div class="opt ${model.id===selectedModelId?"selected":""}" data-model-id="${esc(model.id)}"><div class="name">${esc(model.display_name)}</div><div class="desc">${esc(model.model_name||"")}</div></div>`).join("") : '<div class="opt selected"><div class="name">Qwen 3.5 35B</div><div class="desc">qwen36-35b</div></div>';
+  const list = models.filter(m => m.enabled !== false && modelHealth[m.id]);
+  if (selectedModelId && !list.some(m => m.id === selectedModelId) && list.length) { selectedModelId=list[0].id; localStorage.setItem("chatstudio_model_id",selectedModelId); }
+  if (!list.length) { dropdown.innerHTML='<div class="opt selected"><div class="name"><span class="status-dot green"></span>Нет настроенных моделей</div><div class="desc">Добавьте MODEL_1, MODEL_2 в админ-панели</div></div>'; return; }
+  dropdown.innerHTML = list.map(model => {
+    const health = modelHealth[model.id] || {status:"green",success_rate:100,sample_size:0};
+    return `<div class="opt ${model.id===selectedModelId?"selected":""}" data-model-id="${esc(model.id)}"><div class="name"><span class="status-dot ${health.status}"></span>${esc(model.display_name)}</div><div class="desc">${health.sample_size ? "Успешность "+health.success_rate+"%" : "Нет данных — работает"}</div></div>`;
+  }).join("");
 }
 $("modelSelectBtn").onclick = event => { event.stopPropagation(); $("modelDropdown").classList.toggle("open"); renderTopModelDropdown(); };
 $("modelDropdown").addEventListener("click", event => {
@@ -1016,9 +1037,9 @@ function renderModalBody() {
   }
   if (modalTab === "limits") {
     if (!me?.is_admin) { body.innerHTML='<p class="admin-muted">Только администратор.</p>'; return; }
-    body.innerHTML = '<div class="admin-config-head"><div><h3>Модели и кластеры</h3><div class="sub">Одна конфигурация ENV. Порядок моделей в кластере = порядок fallback.</div></div><button class="newchat-btn" id="saveRuntimeEnv">Применить</button></div>'+
-      '<textarea id="runtimeEnv" class="admin-env" spellcheck="false" placeholder="MODEL_1_NAME=Модель 1\nMODEL_1_ID=...\nMODEL_1_BASE=https://example/v1\nMODEL_1_KEY=...\nMODEL_1_FILE_INFO=...\n\nMODEL_2_NAME=Модель 2\nMODEL_2_ID=...\nMODEL_2_BASE=https://example/v1\nMODEL_2_KEY=...\n\nCLUSTER_ACTIVE=1\nCLUSTER_1_TITLE=1,2\nCLUSTER_1_GENERATION=1,2\nCLUSTER_1_CONTINUE=2,1\n\nCLUSTER_2_TITLE=2,1\nCLUSTER_2_GENERATION=2,1\nCLUSTER_2_CONTINUE=1,2"></textarea>'+
-      '<div class="admin-env-help"><b>Модели</b><br>Для каждой модели указываются NAME, ID, BASE и KEY. Пользователь видит NAME. FILE_INFO добавляется перед текстом файла при отправке этой модели.<br><br><b>Кластеры</b><br>Каждый кластер содержит три независимые цепочки fallback: <code>CLUSTER_N_TITLE</code> — заголовок, <code>CLUSTER_N_GENERATION</code> — основная генерация, <code>CLUSTER_N_CONTINUE</code> — продолжение. Порядок слева направо: первая модель → при ошибке следующая. <code>CLUSTER_ACTIVE=N</code> выбирает активный кластер для всех трёх задач.</div>';
+    body.innerHTML = '<div class="admin-config-head"><div><h3>Модели</h3><div class="sub">Пользователь выбирает одну модель. Она используется для основного ответа, заголовка и продолжения диалога.</div></div><button class="newchat-btn" id="saveRuntimeEnv">Применить</button></div>'+
+      '<textarea id="runtimeEnv" class="admin-env" spellcheck="false" placeholder="MODEL_1_NAME=Модель 1\nMODEL_1_ID=...\nMODEL_1_BASE=https://example/v1\nMODEL_1_KEY=...\nMODEL_1_FILE_INFO=...\n\nMODEL_2_NAME=Модель 2\nMODEL_2_ID=...\nMODEL_2_BASE=https://example/v1\nMODEL_2_KEY=...\nMODEL_2_FILE_INFO=..."></textarea>'+
+      '<div class="admin-env-help"><b>Модели</b><br>Каждая <code>MODEL_N</code> — отдельная модель, которую пользователь увидит в списке. Укажи NAME, ID, BASE, KEY и при необходимости FILE_INFO.<br><br><b>Логика</b><br>Выбранная модель используется для всех трёх действий: основной ответ → автоматический заголовок → через 30 секунд 3 предложения для продолжения диалога.<br><br><b>Статус</b><br>Последние 10 обращений: зелёная точка — 100% успешно; жёлтая — 90%; красная — ниже 90%.</div>';
     api("/api/routing/runtime-env").then(x=>{$("runtimeEnv").value=x.content||"";}).catch(e=>toast(e.message));
     setTimeout(()=>{$("saveRuntimeEnv").onclick=async()=>{try{await api("/api/routing/runtime-env",{method:"POST",body:JSON.stringify({content:$("runtimeEnv").value})});await loadRoutingInfo();renderAll();toast("Конфигурация применена");}catch(e){toast(e.message)}}},0);
     return;
