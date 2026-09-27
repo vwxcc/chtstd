@@ -14,10 +14,10 @@ async def bootstrap_default_routing(session: AsyncSession) -> None:
     settings = get_settings()
 
     defaults = [
-        ("free", "Free", 20, 120000, 30000, 10, 50 * 1024 * 1024),
-        ("plus", "Plus", 100, 120000, 60000, 20, 100 * 1024 * 1024),
-        ("pro", "Pro", 500, 120000, 100000, 30, 200 * 1024 * 1024),
-        ("max", "Max", 2000, 120000, 200000, 50, 500 * 1024 * 1024),
+        ("free", "Free", 100, 120000, 150000, 50, 250 * 1024 * 1024),
+        ("plus", "Plus", 500, 120000, 300000, 100, 500 * 1024 * 1024),
+        ("pro", "Pro", 2500, 120000, 500000, 100, 1024 * 1024 * 1024),
+        ("max", "Max", 10000, 120000, 1000000, 100, 1024 * 1024 * 1024),
     ]
     for name, display_name, req_day, max_tokens, max_prompt, max_files, total_size in defaults:
         plan = (await session.execute(select(Plan).where(Plan.name == name))).scalar_one_or_none()
@@ -27,6 +27,18 @@ async def bootstrap_default_routing(session: AsyncSession) -> None:
                              max_total_file_size=total_size, enabled=True))
         else:
             plan.display_name = display_name
+            old_defaults = {
+                "free": (20, 30000, 10, 50 * 1024 * 1024),
+                "plus": (100, 60000, 20, 100 * 1024 * 1024),
+                "pro": (500, 100000, 30, 200 * 1024 * 1024),
+                "max": (2000, 200000, 50, 500 * 1024 * 1024),
+            }[name]
+            current = (plan.requests_per_day, plan.max_prompt_length, plan.max_files_per_request, plan.max_total_file_size)
+            if current == old_defaults:
+                plan.requests_per_day = req_day
+                plan.max_prompt_length = max_prompt
+                plan.max_files_per_request = max_files
+                plan.max_total_file_size = total_size
 
     admin = (await session.execute(select(User).where(User.email == "admin@admin.admin"))).scalar_one_or_none()
     if admin is None:
