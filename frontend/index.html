@@ -757,7 +757,6 @@ function updateHeader() {
   const health = activeModel ? (modelHealth[activeModel.id] || {status:"green"}) : {status:"green"};
   const dot = $("modelSelectBtn")?.querySelector(".dot");
   if (dot) { dot.className = "dot " + health.status; }
-  const activeModel = models.find(m=>m.id===selectedModelId) || models.find(m=>m.enabled!==false) || models[0];
   if(activeModel){selectedModelId=activeModel.id;localStorage.setItem("chatstudio_model_id",selectedModelId);}
   $("chatTitle").textContent = chat?.title || "Новый чат";
   if (chat) document.title = `${chat.title || "Chat Studio"} — Chat Studio`;
