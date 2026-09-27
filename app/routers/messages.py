@@ -214,8 +214,8 @@ async def send_message(
         options["effort"] = payload.effort
     if payload.top_p is not None:
         options["top_p"] = payload.top_p
-    if payload.max_tokens is not None:
-        options["max_tokens"] = payload.max_tokens
+    if payload.model_id:
+        options["model_id"] = payload.model_id
     ai_request = await _create_generation_request(session, user_id=user.id, chat=chat, message=message, options=options)
 
     return {"message": _to_public(message), "ai_request": ai_request}
