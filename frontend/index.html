@@ -845,7 +845,7 @@ function showAppDialog(title,text,opts={}){return new Promise(resolve=>{appDialo
 function closeAppDialog(result){$("appDialogOverlay").classList.remove("open");if(appDialogResolver){const r=appDialogResolver;appDialogResolver=null;r(result);}}
 $("appDialogCancel").onclick=()=>closeAppDialog(false);$("appDialogClose").onclick=()=>closeAppDialog(false);$("appDialogConfirm").onclick=()=>closeAppDialog($("appDialogInput").style.display!=="none"?$("appDialogInput").value:true);$("appDialogOverlay").addEventListener("click",e=>{if(e.target===$("appDialogOverlay"))closeAppDialog(false)});$("appDialogInput").addEventListener("keydown",e=>{if(e.key==="Enter")$("appDialogConfirm").click()});
 function renderFilePreview() {
-  $("filePreviewRow").innerHTML = pendingFiles.map((file,index) => `<div class="file-chip"><span>📎</span><span class="meta"><span class="fname">${esc(file.original_name)}</span><span class="fsize">${fmtBytes(file.size_bytes || file.size || 0)}</span></span><button onclick="removePendingFile(${index})">×</button></div>`).join("");
+  $("filePreviewRow").innerHTML = pendingFiles.map((file,index) => { const visual=/^image\\//.test(file.mime_type||"") ? `<img class="file-thumb" src="/api/files/${encodeURIComponent(file.id)}/download" alt="">` : `<span class="file-thumb" style="display:flex;align-items:center;justify-content:center;font-size:10px">${esc((file.extension||"file").toUpperCase().slice(0,5))}</span>`; return `<div class="file-chip">${visual}<span class="meta"><span class="fname">${esc(file.original_name)}</span><span class="fsize">${fmtBytes(file.size_bytes || file.size || 0)}</span></span><button onclick="removePendingFile(${index})" aria-label="Удалить файл">×</button></div>`; }).join("");
 }
 window.removePendingFile = index => { pendingFiles.splice(index,1); renderFilePreview(); };
 
@@ -886,7 +886,7 @@ function updateLastAssistant(content, replace=false) {
   let assistant = $("threadInner").querySelector(".msg.assistant:last-child");
   if (!assistant) {
     assistant = document.createElement("article"); assistant.className="msg assistant";
-    assistant.innerHTML='<div class="avatar assistant">✳</div><div class="msg-body"><div class="bubble"></div></div>';
+    assistant.innerHTML='<div class="avatar assistant">AI</div><div class="msg-body"><div class="bubble"></div></div>';
     $("threadInner").appendChild(assistant);
   }
   const bubble = assistant.querySelector(".bubble");
