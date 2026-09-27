@@ -402,8 +402,8 @@ table.limits tr:last-child td{ border-bottom:none; }
       <div class="field-row"><div><div class="lbl">Пароль</div></div><input id="authPassword" class="selectlike" type="password" autocomplete="current-password"></div>
       <div id="authConfirmWrap" class="field-row" style="display:none"><div><div class="lbl">Повторите пароль</div></div><input id="authConfirm" class="selectlike" type="password"></div>
       <div id="authError" style="color:var(--danger);font-size:12px;padding:10px 0;display:none"></div>
-      <button id="authSubmit" class="newchat-btn" style="justify-content:center;background:var(--accent);color:var(--accent-ink);border-color:var(--accent);margin-top:12px">Войти</button>
-      <div style="text-align:center;padding-top:14px;font-size:12px;color:var(--text-muted)"><span id="authSwitchText">Нет аккаунта?</span> <button id="authSwitch" style="color:var(--accent);font-weight:600">Зарегистрироваться</button></div>
+      <button type="button" id="authSubmit" class="newchat-btn" style="justify-content:center;background:var(--accent);color:var(--accent-ink);border-color:var(--accent);margin-top:12px">Войти</button>
+      <div style="text-align:center;padding-top:14px;font-size:12px;color:var(--text-muted)"><span id="authSwitchText">Нет аккаунта?</span> <button type="button" id="authSwitch" style="color:var(--accent);font-weight:600">Зарегистрироваться</button></div>
     </div>
   </div>
 </div>
@@ -579,19 +579,48 @@ function setAuthMode(register) {
   $("authSwitch").textContent = register ? "Войти" : "Зарегистрироваться";
   $("authError").style.display = "none";
 }
-$("authSwitch").onclick = () => setAuthMode(!authRegister);
-$("authSubmit").onclick = async () => {
-  try {
-    const payload = authRegister
-      ? {name: $("authName").value.trim(), email: $("authEmail").value.trim(), password: $("authPassword").value, password_confirm: $("authConfirm").value}
-      : {email: $("authEmail").value.trim(), password: $("authPassword").value};
-    me = await api(authRegister ? "/api/auth/register" : "/api/auth/login", {method:"POST", body:JSON.stringify(payload)});
-    await enterApp();
-  } catch (error) {
-    $("authError").textContent = error.message;
-    $("authError").style.display = "block";
-  }
-};
+function bindAuthControls() {
+  const switchButton = $("authSwitch");
+  const submitButton = $("authSubmit");
+  if (!switchButton || !submitButton) return false;
+
+  switchButton.onclick = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setAuthMode(!authRegister);
+  };
+
+  submitButton.onclick = async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const errorBox = $("authError");
+    try {
+      const email = $("authEmail").value.trim();
+      const password = $("authPassword").value;
+      if (!email || !password) throw new Error("Введите email и пароль.");
+      const payload = authRegister
+        ? {name: $("authName").value.trim(), email, password, password_confirm: $("authConfirm").value}
+        : {email, password};
+      if (authRegister && !payload.name) throw new Error("Введите имя.");
+      if (authRegister && payload.password !== payload.password_confirm) throw new Error("Пароли не совпадают.");
+      if (!csrf) csrf = (await api("/api/auth/csrf")).csrf_token;
+      me = await api(authRegister ? "/api/auth/register" : "/api/auth/login", {method:"POST", body:JSON.stringify(payload)});
+      await enterApp();
+    } catch (error) {
+      errorBox.textContent = error.message || "Не удалось выполнить запрос.";
+      errorBox.style.display = "block";
+    }
+  };
+
+  ["authEmail","authPassword","authName","authConfirm"].forEach(id => {
+    const input = $(id);
+    if (input) input.addEventListener("keydown", event => {
+      if (event.key === "Enter") submitButton.click();
+    });
+  });
+  return true;
+}
+bindAuthControls();
 
 async function enterApp() {
   $("authOverlay").classList.remove("open");
