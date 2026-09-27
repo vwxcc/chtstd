@@ -383,8 +383,18 @@ class AIRouterService:
                     accumulated = ""
                     if on_delta:
                         on_delta("__CHATSTUDIO_RESET__")
+                model_messages = messages
+                if model.request_prefix:
+                    model_messages = json.loads(json.dumps(messages, ensure_ascii=False))
+                    for msg in model_messages:
+                        content = msg.get("content")
+                        if not isinstance(content, list):
+                            continue
+                        for part in content:
+                            if part.get("type") == "text" and str(part.get("text") or "").startswith("[Файл"):
+                                part["text"] = model.request_prefix + "\\n" + part["text"]
                 async for kind, piece in _call_provider_stream(
-                    provider, model, messages, connection_timeout=self._settings.connection_timeout, options=options
+                    provider, model, model_messages, connection_timeout=self._settings.connection_timeout, options=options
                 ):
                     if await self._is_cancelled(session, ai_request.id):
                         raise Cancelled()
