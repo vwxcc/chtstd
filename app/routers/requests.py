@@ -84,12 +84,28 @@ async def stream_request(
 
     async def _events():
         try:
+            # Re-check after subscribing to close the completion/subscription race.
+            current = await _get_owned_request(session, request_id, user.id)
+            if current.status in ("completed", "failed", "cancelled"):
+                yield f"event: {current.status}\\ndata: {json.dumps({'status': current.status})}\\n\\n"
+                return
+
             while True:
-                event: StreamEvent = await queue.get()
+                try:
+                    event: StreamEvent = await asyncio.wait_for(queue.get(), timeout=10)
+                except asyncio.TimeoutError:
+                    current = await _get_owned_request(session, request_id, user.id)
+                    if current.status in ("completed", "failed", "cancelled"):
+                        yield f"event: {current.status}\\ndata: {json.dumps({'status': current.status})}\\n\\n"
+                        break
+                    continue
+
                 if event.kind == "delta":
-                    yield f"event: delta\ndata: {json.dumps({'text': event.text})}\n\n"
+                    yield f"event: delta\\ndata: {json.dumps({'text': event.text})}\\n\\n"
+                elif event.kind == "replace":
+                    yield f"event: replace\\ndata: {json.dumps({'text': event.text})}\\n\\n"
                 else:
-                    yield f"event: {event.kind}\ndata: {json.dumps({'text': event.text})}\n\n"
+                    yield f"event: {event.kind}\\ndata: {json.dumps({'text': event.text})}\\n\\n"
                     break
         finally:
             router_service.unsubscribe(request_id, queue)
