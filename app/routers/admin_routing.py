@@ -485,7 +485,7 @@ async def model_status(
     result = await session.execute(
         select(ModelConfig, Provider)
         .join(Provider, Provider.id == ModelConfig.provider_id)
-        .where(ModelConfig.enabled.is_(True), Provider.enabled.is_(True))
+        .where(ModelConfig.enabled.is_(True), Provider.enabled.is_(True), Provider.name.like("runtime-%"))
         .order_by(ModelConfig.created_at.asc())
     )
     models = result.all()
@@ -502,21 +502,24 @@ async def model_status(
     for model, provider in models:
         observations: list[bool] = []
         for req in recent:
-            matched = req.model == model.display_name or req.provider == provider.name
             attempts = []
             if req.fallback_attempts_json:
                 try:
                     attempts = json.loads(req.fallback_attempts_json) or []
                 except Exception:
                     attempts = []
-            for attempt in attempts:
-                if attempt.get("provider") == provider.name or attempt.get("model") == model.display_name:
-                    matched = True
-                    observations.append(False)
-            if matched and not attempts:
+
+            attempt_failed = any(
+                a.get("provider") == provider.name or a.get("model") == model.display_name
+                for a in attempts
+            )
+            final_match = req.model == model.display_name or req.provider == provider.name
+
+            if attempt_failed:
+                observations.append(False)
+            elif final_match:
                 observations.append(req.status == "completed")
-            elif matched and req.model == model.display_name:
-                observations.append(req.status == "completed")
+
             if len(observations) >= 10:
                 break
 
@@ -532,7 +535,6 @@ async def model_status(
             "success_rate": round(rate, 1),
             "sample_size": total,
         })
-
     return {"models": out, "window": 10}
 }
 
