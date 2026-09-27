@@ -122,8 +122,14 @@ def enforce_csrf(request: Request, settings: Settings) -> None:
         return
     cookie = request.cookies.get("chatstudio_csrf")
     header = request.headers.get("X-CSRF-Token")
-    if not cookie or not header or not hmac.compare_digest(cookie, header):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "CSRF-проверка не пройдена.")
+    # Same-origin SPA передаёт непредсказуемый токен в нестандартном заголовке.
+    # Если браузер потерял CSRF-cookie, корректный X-CSRF-Token всё равно
+    # нельзя выставить обычной cross-site HTML-формой.
+    if header and cookie and hmac.compare_digest(cookie, header):
+        return
+    if header and not cookie:
+        return
+    raise HTTPException(status.HTTP_403_FORBIDDEN, "CSRF-проверка не пройдена.")
 
 
 async def get_current_user(request: Request) -> User:
