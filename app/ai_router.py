@@ -459,11 +459,43 @@ class AIRouterService:
             routing_set_name, models = None, []
             logger.exception("Ошибка разрешения routing set для задачи %s", ai_request.task)
 
+        # Если пользователь выбрал конкретную модель, ставим её первой.
+        preferred_model_id = str(options.get("model_id") or "").strip()
+        if preferred_model_id:
+            preferred = await session.execute(
+                select(ModelConfig, Provider)
+                .join(Provider, Provider.id == ModelConfig.provider_id)
+                .where(
+                    ModelConfig.id == preferred_model_id,
+                    ModelConfig.enabled.is_(True),
+                    Provider.enabled.is_(True),
+                )
+            )
+            row = preferred.first()
+            if row:
+                preferred_pair = (row[1], row[0])
+                models = [preferred_pair] + [pair for pair in models if pair[1].id != preferred_model_id]
+                if not routing_set_name:
+                    routing_set_name = "direct"
+
+        # Защита от пустой/сломанной маршрутизации: используем любую
+        # включённую модель, если task route ещё не настроен.
+        if not models:
+            fallback_result = await session.execute(
+                select(ModelConfig, Provider)
+                .join(Provider, Provider.id == ModelConfig.provider_id)
+                .where(ModelConfig.enabled.is_(True), Provider.enabled.is_(True))
+                .order_by(ModelConfig.created_at.asc())
+            )
+            models = [(provider, model) for model, provider in fallback_result.all()]
+            if models:
+                routing_set_name = routing_set_name or "default"
+
         self._publish(ai_request.id, StreamEvent("thinking", "Модель размышляет и готовит ответ…"))
 
         if not models:
             ai_request.status = "failed"
-            ai_request.error = "Для этой задачи не настроен рабочий routing set."
+            ai_request.error = "Нет доступной включённой модели. Добавьте модель и провайдера в админ-панели."
             await session.commit()
             self._publish(ai_request.id, StreamEvent("error", ai_request.error))
             return
