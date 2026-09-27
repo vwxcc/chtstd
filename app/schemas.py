@@ -37,6 +37,10 @@ class UserPublic(BaseModel):
     email: str
     created_at: dt.datetime
     is_admin: bool = False
+    plan_name: str = "free"
+    plan_display_name: str = "Free"
+    plan_requests_per_day: int = 20
+    plan_max_tokens: int = 120000
 
 
 class CsrfResponse(BaseModel):
@@ -117,7 +121,6 @@ class SendMessageRequest(BaseModel):
     temperature: Optional[float] = Field(default=None, ge=0, le=2)
     effort: Optional[str] = Field(default=None, pattern="^(low|medium|high|max)$")
     top_p: Optional[float] = Field(default=None, ge=0.05, le=1)
-    max_tokens: Optional[int] = Field(default=None, ge=256, le=32000)
 
 
 class EditMessageRequest(BaseModel):
@@ -145,6 +148,34 @@ class AIRequestPublic(BaseModel):
     started_at: Optional[dt.datetime]
     completed_at: Optional[dt.datetime]
     options_json: Optional[str] = None
+
+
+# --------------------------------------------------------------------------
+# Subscription plans
+# --------------------------------------------------------------------------
+
+
+class PlanPublic(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    name: str
+    display_name: str
+    requests_per_day: int
+    max_tokens: int
+    max_prompt_length: int
+    max_files_per_request: int
+    max_total_file_size: int
+    enabled: bool
+
+
+class PlanUpdate(BaseModel):
+    display_name: Optional[str] = None
+    requests_per_day: Optional[int] = Field(default=None, ge=0)
+    max_tokens: Optional[int] = Field(default=None, ge=256, le=200000)
+    max_prompt_length: Optional[int] = Field(default=None, ge=1, le=1000000)
+    max_files_per_request: Optional[int] = Field(default=None, ge=0, le=100)
+    max_total_file_size: Optional[int] = Field(default=None, ge=0, le=1024*1024*1024)
+    enabled: Optional[bool] = None
 
 
 # --------------------------------------------------------------------------
