@@ -33,6 +33,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy import event
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app.config import get_settings
@@ -374,6 +375,16 @@ class ChatSuggestion(Base):
 _settings = get_settings()
 
 engine = create_async_engine(_settings.sqlalchemy_url, echo=False, future=True)
+
+
+@event.listens_for(engine.sync_engine, "connect")
+def _enable_sqlite_foreign_keys(dbapi_connection, connection_record) -> None:
+    # SQLite does not enforce FOREIGN KEY constraints unless explicitly enabled.
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys=ON")
+    finally:
+        cursor.close()
 
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
