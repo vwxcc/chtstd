@@ -318,6 +318,7 @@ class AIRequest(Base):
     fallback_attempts_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     cancel_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    options_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     started_at: Mapped[Optional[dt.datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -392,6 +393,10 @@ AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=As
 async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        result = await conn.exec_driver_sql("PRAGMA table_info(ai_requests)")
+        columns = {row[1] for row in result.fetchall()}
+        if "options_json" not in columns:
+            await conn.exec_driver_sql("ALTER TABLE ai_requests ADD COLUMN options_json TEXT")
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
