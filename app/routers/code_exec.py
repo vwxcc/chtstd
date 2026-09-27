@@ -34,8 +34,13 @@ async def execute_code(
         blocked_names = {"open","exec","eval","compile","__import__","input","breakpoint","globals","locals","vars","getattr","setattr","delattr"}
         blocked_modules = {"os","sys","subprocess","socket","pathlib","shutil","ctypes","requests","httpx"}
         for node in ast.walk(tree):
-            if isinstance(node, (ast.Import, ast.ImportFrom)):
-                raise ValueError("Импорты в веб-исполнителе отключены.")
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name.split(".")[0] not in {"math","statistics","decimal","fractions"}:
+                        raise ValueError("Разрешены только безопасные модули: math, statistics, decimal, fractions.")
+            if isinstance(node, ast.ImportFrom):
+                if (node.module or "").split(".")[0] not in {"math","statistics","decimal","fractions"}:
+                    raise ValueError("Разрешены только безопасные модули: math, statistics, decimal, fractions.")
             if isinstance(node, ast.Name) and (node.id in blocked_names or node.id.startswith("__")):
                 raise ValueError("Недоступная операция в веб-исполнителе.")
             if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
