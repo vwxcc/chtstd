@@ -12,7 +12,7 @@ from fastapi import HTTPException, Request, Response, status
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from app.config import Settings
-from app.database import User, get_session
+from app.database import AsyncSessionLocal, User
 
 # In-process rate limiting is sufficient for the single-container ZimaOS deployment.
 _rate_hits: dict[str, deque[float]] = defaultdict(deque)
