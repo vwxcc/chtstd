@@ -30,8 +30,30 @@ logger = logging.getLogger("chatstudio")
 settings = get_settings()
 
 
+def load_runtime_env() -> None:
+    """Load persisted model API keys/config into the process environment."""
+    path = settings.data_dir / "runtime.env"
+    if not path.exists():
+        return
+    try:
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key:
+                import os
+                os.environ[key] = value
+    except Exception:
+        logger.exception("Не удалось загрузить runtime.env")
+
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    load_runtime_env()
     await init_db()
 
     async with AsyncSessionLocal() as bootstrap_session:
