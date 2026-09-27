@@ -4,6 +4,7 @@ import asyncio
 import os
 import sys
 import tempfile
+import ast
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -28,6 +29,21 @@ async def execute_code(
     enforce_csrf(request, settings)
     if payload.language.lower() not in {"python", "py"}:
         raise HTTPException(400, "Пока выполняется только Python.")
+    try:
+        tree = ast.parse(payload.code, mode="exec")
+        blocked_names = {"open","exec","eval","compile","__import__","input","breakpoint","globals","locals","vars","getattr","setattr","delattr"}
+        blocked_modules = {"os","sys","subprocess","socket","pathlib","shutil","ctypes","requests","httpx"}
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                raise ValueError("Импорты в веб-исполнителе отключены.")
+            if isinstance(node, ast.Name) and (node.id in blocked_names or node.id.startswith("__")):
+                raise ValueError("Недоступная операция в веб-исполнителе.")
+            if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
+                raise ValueError("Служебные атрибуты отключены.")
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and len(node.value) > 20000:
+                raise ValueError("Слишком большая строковая константа.")
+    except (SyntaxError, ValueError) as exc:
+        raise HTTPException(400, f"Код не прошёл безопасную проверку: {exc}")
     with tempfile.TemporaryDirectory(prefix="chatstudio-code-") as td:
         script = Path(td) / "main.py"
         script.write_text(payload.code, encoding="utf-8")
