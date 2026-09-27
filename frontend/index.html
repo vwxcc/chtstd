@@ -107,6 +107,12 @@ a{color:var(--accent);}
 .chat-item input.rename{ flex:1; background:var(--bg-elev); border:1px solid var(--accent); border-radius:6px; padding:2px 6px; font-size:13px; }
 .chat-item .row-actions{ display:none; gap:2px; }
 .chat-item:hover .row-actions{ display:flex; }
+.icon-btn svg{display:block;pointer-events:none}
+.message-file-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:9px}
+.message-file{display:inline-flex;align-items:center;gap:8px;max-width:320px;padding:6px 8px;border:1px solid var(--border);border-radius:10px;background:var(--bg-elev);color:var(--text);text-decoration:none;font-size:12px;min-width:0}
+.message-file:hover{border-color:var(--accent);background:var(--bg-soft)}
+.file-thumb{width:46px;height:46px;min-width:46px;border-radius:7px;object-fit:cover;display:block;background:var(--bg-soft);border:1px solid var(--border);overflow:hidden}
+.message-file>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .icon-btn{
   border:none; background:transparent; color:var(--text-muted); cursor:pointer; width:24px; height:24px;
   border-radius:6px; display:flex; align-items:center; justify-content:center; flex-shrink:0;
@@ -433,9 +439,9 @@ table.limits tr:last-child td{ border-bottom:none; }
       <div class="chat-header-side"></div>
       <div class="chat-title-wrap"><div class="chat-title" id="chatTitle">Новый чат</div></div>
       <div class="chat-header-actions">
-        <button class="icon-btn" id="renameChatBtn" title="Переименовать">✎</button>
-        <button class="icon-btn" id="shareChatBtn" title="Поделиться">↗</button>
-        <button class="icon-btn" id="copyChatBtn" title="Копировать">⧉</button>
+        <button class="icon-btn" id="renameChatBtn" title="Переименовать" aria-label="Переименовать"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg></button>
+        <button class="icon-btn" id="shareChatBtn" title="Поделиться" aria-label="Поделиться"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5"/></svg></button>
+        <button class="icon-btn" id="copyChatBtn" title="Копировать" aria-label="Копировать"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h2"/></svg></button>
         <button class="icon-btn" id="settingsGearBtn" title="Настройки">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00-.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09c0-.68-.39-1.29-1-1.51-.6-.23-1.29-.1-1.82.33l-.06.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09c0 .68.39 1.29 1 1.51.6.23 1.29.1 1.82-.33l.06-.06a2 2 0 112.83 2.83l.06.06A1.65 1.65 0 0019.4 9c.23.6.84 1 1.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
         </button>
@@ -1011,8 +1017,8 @@ function renderModalBody() {
   if (modalTab === "limits") {
     if (!me?.is_admin) { body.innerHTML='<p class="admin-muted">Только администратор.</p>'; return; }
     body.innerHTML = '<div class="admin-config-head"><div><h3>Модели и кластеры</h3><div class="sub">Одна конфигурация ENV. Порядок моделей в кластере = порядок fallback.</div></div><button class="newchat-btn" id="saveRuntimeEnv">Применить</button></div>'+
-      '<textarea id="runtimeEnv" class="admin-env" spellcheck="false" placeholder="MODEL_QWEN_NAME=Qwen 3.5 35B\nMODEL_QWEN_ID=qwen36-35b\nMODEL_QWEN_BASE=https://example/v1\nMODEL_QWEN_KEY=...\nMODEL_QWEN_FILE_INFO=...\n\nCLUSTER_GENERATION=QWEN\nCLUSTER_TITLE=QWEN\nCLUSTER_CONTINUE=QWEN"></textarea>'+
-      '<div class="admin-env-help"><b>Схема</b><br>Пользователь видит только MODEL_*_NAME. Внутри: ID — реальное имя модели; BASE — endpoint; KEY — ключ; FILE_INFO — служебный текст, который добавляется в начало каждого отправляемого к модели текстового файла.<br><br><b>Кластеры</b><br>CLUSTER_GENERATION — основная генерация; CLUSTER_TITLE — заголовки; CLUSTER_CONTINUE — продолжение. В каждой строке минимум одна модель, через запятую — fallback 1 → 2 → 3.</div>';
+      '<textarea id="runtimeEnv" class="admin-env" spellcheck="false" placeholder="MODEL_1_NAME=Модель 1\nMODEL_1_ID=...\nMODEL_1_BASE=https://example/v1\nMODEL_1_KEY=...\nMODEL_1_FILE_INFO=...\n\nMODEL_2_NAME=Модель 2\nMODEL_2_ID=...\nMODEL_2_BASE=https://example/v1\nMODEL_2_KEY=...\n\nCLUSTER_ACTIVE=1\nCLUSTER_1_TITLE=1,2\nCLUSTER_1_GENERATION=1,2\nCLUSTER_1_CONTINUE=2,1\n\nCLUSTER_2_TITLE=2,1\nCLUSTER_2_GENERATION=2,1\nCLUSTER_2_CONTINUE=1,2"></textarea>'+
+      '<div class="admin-env-help"><b>Модели</b><br>Для каждой модели указываются NAME, ID, BASE и KEY. Пользователь видит NAME. FILE_INFO добавляется перед текстом файла при отправке этой модели.<br><br><b>Кластеры</b><br>Каждый кластер содержит три независимые цепочки fallback: <code>CLUSTER_N_TITLE</code> — заголовок, <code>CLUSTER_N_GENERATION</code> — основная генерация, <code>CLUSTER_N_CONTINUE</code> — продолжение. Порядок слева направо: первая модель → при ошибке следующая. <code>CLUSTER_ACTIVE=N</code> выбирает активный кластер для всех трёх задач.</div>';
     api("/api/routing/runtime-env").then(x=>{$("runtimeEnv").value=x.content||"";}).catch(e=>toast(e.message));
     setTimeout(()=>{$("saveRuntimeEnv").onclick=async()=>{try{await api("/api/routing/runtime-env",{method:"POST",body:JSON.stringify({content:$("runtimeEnv").value})});await loadRoutingInfo();renderAll();toast("Конфигурация применена");}catch(e){toast(e.message)}}},0);
     return;
