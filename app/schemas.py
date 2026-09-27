@@ -114,6 +114,8 @@ class MessagePublic(BaseModel):
 class SendMessageRequest(BaseModel):
     content: str
     file_ids: list[str] = Field(default_factory=list)
+    temperature: Optional[float] = Field(default=None, ge=0, le=2)
+    effort: Optional[str] = Field(default=None, pattern="^(low|medium|high|max)$")
 
 
 class EditMessageRequest(BaseModel):
@@ -140,6 +142,7 @@ class AIRequestPublic(BaseModel):
     created_at: dt.datetime
     started_at: Optional[dt.datetime]
     completed_at: Optional[dt.datetime]
+    options_json: Optional[str] = None
 
 
 # --------------------------------------------------------------------------
