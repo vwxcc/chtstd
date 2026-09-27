@@ -69,6 +69,10 @@ async def bootstrap_default_routing(session: AsyncSession) -> None:
         )
         session.add(model)
         await session.flush()
+    else:
+        model.temperature = settings.qwen_temperature
+        model.max_tokens = settings.qwen_max_tokens
+        model.timeout = settings.request_timeout
 
     routing = (
         await session.execute(select(RoutingSet).where(RoutingSet.name == "default"))
