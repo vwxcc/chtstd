@@ -58,6 +58,7 @@ class User(Base):
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(80), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    plan_name: Mapped[str] = mapped_column(String(20), nullable=False, default="free", server_default="free", index=True)
 
     # scrypt: храним соль и хэш отдельно (раздел 5)
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
@@ -67,6 +68,34 @@ class User(Base):
 
     chats: Mapped[list["Chat"]] = relationship(back_populates="owner", cascade="all, delete-orphan")
     files: Mapped[list["FileRecord"]] = relationship(back_populates="owner", cascade="all, delete-orphan")
+
+
+# --------------------------------------------------------------------------
+# Тарифы
+# --------------------------------------------------------------------------
+
+
+class Plan(Base):
+    __tablename__ = "plans"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(20), nullable=False, unique=True)
+    display_name: Mapped[str] = mapped_column(String(60), nullable=False)
+    requests_per_day: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
+    max_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=120000)
+    max_prompt_length: Mapped[int] = mapped_column(Integer, nullable=False, default=30000)
+    max_files_per_request: Mapped[int] = mapped_column(Integer, nullable=False, default=20)
+    max_total_file_size: Mapped[int] = mapped_column(Integer, nullable=False, default=50 * 1024 * 1024)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint("requests_per_day >= 0", name="ck_plan_requests_per_day"),
+        CheckConstraint("max_tokens >= 256 AND max_tokens <= 200000", name="ck_plan_max_tokens"),
+        CheckConstraint("max_prompt_length >= 1", name="ck_plan_max_prompt_length"),
+        CheckConstraint("max_files_per_request >= 0", name="ck_plan_max_files"),
+        CheckConstraint("max_total_file_size >= 0", name="ck_plan_total_file_size"),
+    )
 
 
 # --------------------------------------------------------------------------
@@ -397,6 +426,10 @@ async def init_db() -> None:
         columns = {row[1] for row in result.fetchall()}
         if "options_json" not in columns:
             await conn.exec_driver_sql("ALTER TABLE ai_requests ADD COLUMN options_json TEXT")
+        result = await conn.exec_driver_sql("PRAGMA table_info(users)")
+        user_columns = {row[1] for row in result.fetchall()}
+        if "plan_name" not in user_columns:
+            await conn.exec_driver_sql("ALTER TABLE users ADD COLUMN plan_name VARCHAR(20) NOT NULL DEFAULT 'free'")
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
