@@ -74,6 +74,12 @@ class Settings(BaseSettings):
     global_ai_concurrency: int = Field(default=2, alias="GLOBAL_AI_CONCURRENCY")
     ai_send_images: bool = Field(default=True, alias="AI_SEND_IMAGES")
 
+    # --- Built-in Qwen bootstrap ---
+    qwen_base_url: str = Field(default="https://llm.stage.satel.org/v1", alias="QWEN_BASE_URL")
+    qwen_model: str = Field(default="qwen36-35b", alias="QWEN_MODEL")
+    qwen_temperature: float = Field(default=0.2, alias="QWEN_TEMPERATURE")
+    qwen_max_tokens: int = Field(default=32000, alias="QWEN_MAX_TOKENS")
+
     # --- Администраторы ---
     admin_emails_raw: str = Field(default="", alias="ADMIN_EMAILS")
 
