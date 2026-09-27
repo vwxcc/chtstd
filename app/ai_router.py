@@ -196,7 +196,7 @@ async def build_messages(
         if any(word in q.lower() for word in trigger_words):
             results = await _web_search(q, settings)
             if results:
-                payload.append({"role": "system", "content": "Результаты веб-поиска. Используй их как свежие источники и указывай URL:\n" + results})
+                payload.insert(0, {"role": "system", "content": "Результаты веб-поиска. Используй их как свежие источники и указывай URL:\n" + results})
 
     return payload
 
