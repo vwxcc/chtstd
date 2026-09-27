@@ -484,9 +484,8 @@ class AIRouterService:
             row = preferred.first()
             if row:
                 preferred_pair = (row[1], row[0])
-                models = [preferred_pair] + [pair for pair in models if pair[1].id != preferred_model_id]
-                if not routing_set_name:
-                    routing_set_name = "direct"
+                models = [preferred_pair]
+                routing_set_name = "direct"
 
         # Защита от пустой/сломанной маршрутизации: используем любую
         # включённую модель, если task route ещё не настроен.
