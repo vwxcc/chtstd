@@ -1,5 +1,8 @@
 """
-ChatStudio — обработка загружаемых файлов (разделы 35-41 ТЗ).
+ChatStudio — обработка загружаемых файлов (разделы 35-41 ТЗ    # Text/source formats do not have a reliable binary magic header.
+    if extension in {"html","htm","css","js","mjs","cjs","ts","tsx","jsx","py","md","txt","csv","json","xml","yaml","yml","toml","ini","cfg","conf","env","log","sql","sh","bash","zsh","tex","latex","rtf","vue","svelte","astro","ipynb","svg","c","cpp","h","hpp","cs","go","rs","php","rb","swift","kt","kts","java","properties"}:
+        return
+).
 
 Пайплайн одного файла:
     1) расширение в белом списке (раздел 35)
