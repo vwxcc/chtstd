@@ -23,12 +23,15 @@ from app.database import (
     RoutingSetModel,
     TaskRoute,
     User,
+    Plan,
     get_session,
 )
 from app.schemas import (
     ModelCreate,
     ModelPublic,
     ModelUpdate,
+    PlanPublic,
+    PlanUpdate,
     ProviderCreate,
     ProviderPublic,
     ProviderUpdate,
@@ -48,6 +51,74 @@ VALID_TASK_NAMES = {"main_generation", "title_generation", "suggestions_generati
 async def _admin(user: User = Depends(get_current_user), settings: Settings = Depends(get_settings)) -> User:
     require_admin(user, settings)
     return user
+
+
+# --------------------------------------------------------------------------
+# Subscription plans
+# --------------------------------------------------------------------------
+
+
+@router.get("/plans", response_model=list[PlanPublic])
+async def list_plans(
+    admin: User = Depends(_admin),
+    session: AsyncSession = Depends(get_session),
+) -> list[PlanPublic]:
+    result = await session.execute(select(Plan).order_by(Plan.created_at.asc()))
+    return [PlanPublic.model_validate(p) for p in result.scalars().all()]
+
+
+@router.patch("/plans/{plan_name}", response_model=PlanPublic)
+async def update_plan(
+    plan_name: str,
+    payload: PlanUpdate,
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    admin: User = Depends(_admin),
+    session: AsyncSession = Depends(get_session),
+) -> PlanPublic:
+    enforce_csrf(request, settings)
+    plan = (await session.execute(select(Plan).where(Plan.name == plan_name))).scalar_one_or_none()
+    if not plan:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Тариф не найден.")
+    for field in ("display_name", "requests_per_day", "max_tokens", "max_prompt_length",
+                  "max_files_per_request", "max_total_file_size", "enabled"):
+        value = getattr(payload, field)
+        if value is not None:
+            setattr(plan, field, value)
+    await session.commit()
+    await session.refresh(plan)
+    return PlanPublic.model_validate(plan)
+
+
+@router.get("/users")
+async def list_users(
+    admin: User = Depends(_admin),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    result = await session.execute(select(User).order_by(User.created_at.asc()))
+    return [{"id": u.id, "name": u.name, "email": u.email, "plan_name": u.plan_name, "created_at": u.created_at}
+            for u in result.scalars().all()]
+
+
+@router.patch("/users/{user_id}/plan")
+async def set_user_plan(
+    user_id: str,
+    payload: dict,
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    admin: User = Depends(_admin),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    enforce_csrf(request, settings)
+    plan_name = str(payload.get("plan_name") or "").strip().lower()
+    if plan_name not in {"free", "plus", "pro", "max"}:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Неизвестный тариф.")
+    user = await session.get(User, user_id)
+    if not user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Пользователь не найден.")
+    user.plan_name = plan_name
+    await session.commit()
+    return {"ok": True, "user_id": user.id, "plan_name": user.plan_name}
 
 
 # --------------------------------------------------------------------------
