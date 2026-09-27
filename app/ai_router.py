@@ -344,11 +344,14 @@ class AIRouterService:
         attempts: list[dict] = []
         accumulated = ""
 
-        for provider, model in models:
+        for attempt_index, (provider, model) in enumerate(models):
             if await self._is_cancelled(session, ai_request.id):
                 return False, accumulated, None, None, attempts
             try:
-                accumulated = ""
+                if attempt_index > 0 and accumulated:
+                    accumulated = ""
+                    if on_delta:
+                        on_delta("__CHATSTUDIO_RESET__")
                 async for delta in _call_provider_stream(
                     provider, model, messages, connection_timeout=self._settings.connection_timeout
                 ):
@@ -421,6 +424,10 @@ class AIRouterService:
         )
 
         def on_delta(delta: str) -> None:
+            if delta == "__CHATSTUDIO_RESET__":
+                assistant_message.content = ""
+                self._publish(ai_request.id, StreamEvent("replace", ""))
+                return
             assistant_message.content = (assistant_message.content or "") + delta
             self._publish(ai_request.id, StreamEvent("delta", delta))
 
@@ -447,6 +454,12 @@ class AIRouterService:
             self._publish(ai_request.id, StreamEvent("done"))
             await self._maybe_schedule_followups(session, chat, ai_request)
         else:
+            if await self._is_cancelled(session, ai_request.id):
+                ai_request.status = "cancelled"
+                ai_request.completed_at = dt.datetime.now(dt.timezone.utc)
+                await session.commit()
+                self._publish(ai_request.id, StreamEvent("cancelled"))
+                return
             ai_request.status = "failed"
             ai_request.error = "Все модели маршрута недоступны."
             ai_request.completed_at = dt.datetime.now(dt.timezone.utc)
