@@ -55,7 +55,8 @@ async def _get_owned_file(session: AsyncSession, file_id: str, user_id: str) -> 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def upload_files(
     request: Request,
-    files: list[UploadFile],
+    files: list[UploadFile] = [],
+
     settings: Settings = Depends(get_settings),
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
