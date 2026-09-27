@@ -1,130 +1,153 @@
-"""
-ChatStudio — /api/auth/* (разделы 4, 5, 6 ТЗ).
-"""
+"""ChatStudio authentication and security helpers."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
+import hashlib
+import hmac
+import secrets
+import time
+from collections import defaultdict, deque
 
-from app.auth import (
-    client_ip,
-    clear_session_cookie,
-    enforce_csrf,
-    enforce_login_rate_limit,
-    enforce_register_rate_limit,
-    get_current_user,
-    hash_password,
-    normalize_email,
-    set_csrf_cookie,
-    set_session_cookie,
-    validate_registration_input,
-    verify_password,
-)
-from app.config import Settings, get_settings
+from fastapi import HTTPException, Request, Response, status
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+
+from app.config import Settings
 from app.database import User, get_session
-from app.schemas import CsrfResponse, LoginRequest, RegisterRequest, UserPublic
 
-router = APIRouter(prefix="/api/auth", tags=["auth"])
-
-
-def _to_public(user: User, settings: Settings) -> UserPublic:
-    return UserPublic(
-        id=user.id,
-        name=user.name,
-        email=user.email,
-        created_at=user.created_at,
-        is_admin=settings.is_admin(user.email),
-    )
+# In-process rate limiting is sufficient for the single-container ZimaOS deployment.
+_rate_hits: dict[str, deque[float]] = defaultdict(deque)
 
 
-@router.get("/csrf", response_model=CsrfResponse)
-async def get_csrf_token(response: Response, settings: Settings = Depends(get_settings)) -> CsrfResponse:
-    """Frontend вызывает это до отправки любых POST/PUT/PATCH/DELETE запросов
-    (в т.ч. до логина/регистрации), чтобы получить CSRF cookie + токен."""
-    token = set_csrf_cookie(response, settings)
-    return CsrfResponse(csrf_token=token)
+def _serializer(settings: Settings) -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(settings.session_secret, salt="chatstudio-session")
 
 
-@router.post("/register", response_model=UserPublic, status_code=status.HTTP_201_CREATED)
-async def register(
-    payload: RegisterRequest,
-    request: Request,
-    response: Response,
-    settings: Settings = Depends(get_settings),
-    session: AsyncSession = Depends(get_session),
-) -> UserPublic:
-    enforce_csrf(request, settings)
-    enforce_register_rate_limit(request, settings)
+def client_ip(request: Request) -> str:
+    # Do not trust forwarded headers by default; ZimaOS runs the application directly.
+    return request.client.host if request.client else "unknown"
 
-    validate_registration_input(
-        payload.name, payload.email, payload.password, payload.password_confirm, settings
-    )
 
-    email = normalize_email(payload.email)
-    existing = await session.execute(select(User.id).where(User.email == email))
-    if existing.scalar_one_or_none() is not None:
-        # Не уточняем "email уже занят" отдельным кодом ошибки без причины —
-        # это осознанный компромисс UX (раздел 4) vs enumeration; ТЗ явно
-        # требует сообщать о занятой регистрации (раздел 53), поэтому сообщаем.
-        raise HTTPException(status.HTTP_409_CONFLICT, "Этот email уже зарегистрирован.")
+def _check_rate(key: str, limit: int, window: int) -> None:
+    now = time.monotonic()
+    q = _rate_hits[key]
+    while q and now - q[0] > window:
+        q.popleft()
+    if len(q) >= limit:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Слишком много попыток. Попробуйте позже.")
+    q.append(now)
 
-    salt_hex, hash_hex = hash_password(payload.password)
-    user = User(name=payload.name.strip(), email=email, password_hash=hash_hex, password_salt=salt_hex)
-    session.add(user)
 
+def enforce_login_rate_limit(request: Request, settings: Settings) -> None:
+    _check_rate(f"login:{client_ip(request)}", settings.auth_login_limit, settings.auth_rate_window)
+
+
+def enforce_register_rate_limit(request: Request, settings: Settings) -> None:
+    _check_rate(f"register:{client_ip(request)}", settings.auth_register_limit, settings.auth_rate_window)
+
+
+def normalize_email(email: str) -> str:
+    return email.strip().lower()
+
+
+def validate_registration_input(
+    name: str,
+    email: str,
+    password: str,
+    password_confirm: str,
+    settings: Settings,
+) -> None:
+    name = name.strip()
+    email = normalize_email(email)
+    if not name or len(name) > settings.max_name_length:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Некорректное имя.")
+    if len(email) > 255 or "@" not in email or email.startswith("@") or email.endswith("@"):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Некорректный email.")
+    if len(password) < 8:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Пароль должен содержать не менее 8 символов.")
+    if len(password) > 256:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Пароль слишком длинный.")
+    if password != password_confirm:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Пароли не совпадают.")
+
+
+def hash_password(password: str) -> tuple[str, str]:
+    salt = secrets.token_bytes(16)
+    digest = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1, dklen=64)
+    return salt.hex(), digest.hex()
+
+
+def verify_password(password: str, salt_hex: str, hash_hex: str) -> bool:
     try:
-        await session.commit()
-    except IntegrityError:
-        await session.rollback()
-        raise HTTPException(status.HTTP_409_CONFLICT, "Этот email уже зарегистрирован.")
-
-    await session.refresh(user)
-
-    set_session_cookie(response, user.id, settings)
-    set_csrf_cookie(response, settings)  # ротация токена после смены уровня доступа
-
-    return _to_public(user, settings)
+        digest = hashlib.scrypt(
+            password.encode("utf-8"), salt=bytes.fromhex(salt_hex), n=2**14, r=8, p=1, dklen=64
+        )
+        return hmac.compare_digest(digest.hex(), hash_hex)
+    except (ValueError, TypeError):
+        return False
 
 
-@router.post("/login", response_model=UserPublic)
-async def login(
-    payload: LoginRequest,
-    request: Request,
-    response: Response,
-    settings: Settings = Depends(get_settings),
-    session: AsyncSession = Depends(get_session),
-) -> UserPublic:
-    enforce_csrf(request, settings)
-    enforce_login_rate_limit(request, settings)
-
-    email = normalize_email(payload.email)
-    result = await session.execute(select(User).where(User.email == email))
-    user = result.scalar_one_or_none()
-
-    if not user or not verify_password(payload.password, user.password_salt, user.password_hash):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Неверный email или пароль.")
-
-    set_session_cookie(response, user.id, settings)
-    set_csrf_cookie(response, settings)  # ротация токена после логина (защита от session fixation)
-
-    return _to_public(user, settings)
+def set_session_cookie(response: Response, user_id: str, settings: Settings) -> None:
+    token = _serializer(settings).dumps({"user_id": user_id})
+    response.set_cookie(
+        settings.session_cookie_name,
+        token,
+        max_age=settings.session_max_age_days * 86400,
+        httponly=True,
+        secure=settings.session_cookie_secure,
+        samesite="lax",
+        path="/",
+    )
 
 
-@router.post("/logout")
-async def logout(
-    request: Request,
-    response: Response,
-    settings: Settings = Depends(get_settings),
-    user: User = Depends(get_current_user),
-) -> dict:
-    enforce_csrf(request, settings)
-    clear_session_cookie(response, settings)
-    return {"ok": True}
+def clear_session_cookie(response: Response, settings: Settings) -> None:
+    response.delete_cookie(settings.session_cookie_name, path="/")
 
 
-@router.get("/me", response_model=UserPublic)
-async def me(user: User = Depends(get_current_user), settings: Settings = Depends(get_settings)) -> UserPublic:
-    return _to_public(user, settings)
+def set_csrf_cookie(response: Response, settings: Settings) -> str:
+    token = secrets.token_urlsafe(32)
+    response.set_cookie(
+        "chatstudio_csrf",
+        token,
+        max_age=settings.session_max_age_days * 86400,
+        httponly=False,
+        secure=settings.session_cookie_secure,
+        samesite="lax",
+        path="/",
+    )
+    return token
+
+
+def enforce_csrf(request: Request, settings: Settings) -> None:
+    if not settings.csrf_protection:
+        return
+    cookie = request.cookies.get("chatstudio_csrf")
+    header = request.headers.get("X-CSRF-Token")
+    if not cookie or not header or not hmac.compare_digest(cookie, header):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "CSRF-проверка не пройдена.")
+
+
+async def get_current_user(request: Request) -> User:
+    settings = __import__("app.config", fromlist=["get_settings"]).get_settings()
+    token = request.cookies.get(settings.session_cookie_name)
+    if not token:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Требуется авторизация.")
+    try:
+        data = _serializer(settings).loads(token, max_age=settings.session_max_age_days * 86400)
+    except (BadSignature, SignatureExpired):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Сессия недействительна или истекла.")
+
+    user_id = data.get("user_id")
+    if not user_id:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Сессия недействительна.")
+
+    async for session in get_session():
+        user = await session.get(User, user_id)
+        if not user:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Пользователь не найден.")
+        return user
+    raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Требуется авторизация.")
+
+
+def require_admin(user: User, settings: Settings) -> None:
+    if not settings.is_admin(user.email):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Доступ только для администратора.")
