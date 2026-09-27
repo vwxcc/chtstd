@@ -1,0 +1,54 @@
+# ChatStudio backend requirements
+# Python 3.12
+
+# --- Web framework ---
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+starlette==0.41.3
+
+# --- Data / validation ---
+pydantic==2.10.4
+pydantic-settings==2.7.1
+sqlalchemy==2.0.36
+aiosqlite==0.20.0
+alembic==1.14.0
+
+# --- Auth / security ---
+itsdangerous==2.2.0
+passlib[bcrypt]==1.7.4          # доступен как fallback; основной алгоритм - scrypt (stdlib hashlib)
+python-jose[cryptography]==3.3.0
+secure==0.3.0
+
+# --- Rate limiting ---
+slowapi==0.1.9
+limits==3.14.1
+
+# --- HTTP client (для AI providers) ---
+httpx==0.28.1
+httpx-sse==0.4.0
+
+# --- File processing / document extraction ---
+PyPDF2==3.0.1
+pypdf==5.1.0
+python-docx==1.1.2
+openpyxl==3.1.5
+python-pptx==1.0.2
+Pillow==11.0.0
+python-magic==0.4.27           # проверка magic bytes
+chardet==5.2.0
+
+# --- Markdown / formulas (server-side валидация, не рендер) ---
+markdown-it-py==3.0.0
+
+# --- Utilities ---
+python-dotenv==1.0.1
+orjson==3.10.13
+tenacity==9.0.0                # ретраи / backoff для AI Router fallback
+structlog==24.4.0
+
+# --- Testing (dev) ---
+pytest==8.3.4
+pytest-asyncio==0.25.0
+pytest-cov==6.0.0
+httpx==0.28.1
