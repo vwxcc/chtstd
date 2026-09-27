@@ -233,7 +233,7 @@ async def delete_provider(
 def _model_public(m: ModelConfig) -> ModelPublic:
     return ModelPublic(
         id=m.id, provider_id=m.provider_id, display_name=m.display_name, model_name=m.model_name,
-        temperature=m.temperature, max_tokens=m.max_tokens, timeout=m.timeout, enabled=m.enabled,
+        request_prefix=m.request_prefix, temperature=m.temperature, max_tokens=m.max_tokens, timeout=m.timeout, enabled=m.enabled,
     )
 
 
@@ -263,7 +263,7 @@ async def create_model(
 
     model = ModelConfig(
         provider_id=provider.id, display_name=payload.display_name.strip(), model_name=payload.model_name.strip(),
-        temperature=payload.temperature, max_tokens=payload.max_tokens, timeout=payload.timeout, enabled=payload.enabled,
+        request_prefix=payload.request_prefix, temperature=payload.temperature, max_tokens=payload.max_tokens, timeout=payload.timeout, enabled=payload.enabled,
     )
     session.add(model)
     await session.commit()
@@ -303,6 +303,8 @@ async def update_model(
         model.display_name = payload.display_name.strip()
     if payload.model_name is not None:
         model.model_name = payload.model_name.strip()
+    if payload.request_prefix is not None:
+        model.request_prefix = payload.request_prefix
     model.temperature = new_temp
     model.max_tokens = new_max_tokens
     model.timeout = new_timeout
@@ -336,6 +338,51 @@ async def delete_model(
     await session.delete(model)
     await session.commit()
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------
+# Runtime ENV editor
+# --------------------------------------------------------------------------
+
+@router.get("/runtime-env")
+async def get_runtime_env(admin: User = Depends(_admin)) -> dict:
+    path = get_settings().data_dir / "runtime.env"
+    return {"content": path.read_text(encoding="utf-8") if path.exists() else ""}
+
+
+@router.post("/runtime-env")
+async def apply_runtime_env(
+    payload: dict,
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    admin: User = Depends(_admin),
+) -> dict:
+    enforce_csrf(request, settings)
+    content = str(payload.get("content") or "")
+    if len(content) > 200000:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Конфигурация слишком большая.")
+
+    values = {}
+    for raw in content.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Неверная строка ENV: {line[:80]}")
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if not Settings.validate_env_var_name(key):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Недопустимое имя переменной: {key}")
+        values[key] = value
+
+    path = settings.data_dir
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "runtime.env").write_text(content, encoding="utf-8")
+    for key, value in values.items():
+        os.environ[key] = value
+
+    return {"ok": True, "count": len(values), "restart_required": False}
 
 
 # --------------------------------------------------------------------------
