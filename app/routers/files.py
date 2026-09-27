@@ -167,14 +167,14 @@ async def download_file(
     return FileResponse(path=full_path, filename=f.original_name, media_type=f.mime_type)
 
 
-@router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{file_id}", status_code=status.HTTP_200_OK)
 async def delete_file(
     file_id: str,
     request: Request,
     settings: Settings = Depends(get_settings),
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-) -> None:
+) -> dict:
     enforce_csrf(request, settings)
     f = await _get_owned_file(session, file_id, user.id)
 
@@ -191,3 +191,4 @@ async def delete_file(
 
     if base in full_path.parents and full_path.exists():
         full_path.unlink(missing_ok=True)
+    return {"ok": True}
