@@ -736,7 +736,7 @@ function renderThread(messages) {
 function messageHtml(message) {
   const isUser = message.role === "user";
   const model = message.role === "assistant" && message.model ? `<div class="model-tag">${esc(message.provider || "AI")} · ${esc(message.model)}</div>` : "";
-  const files = (message.files || []).map(file => { const isImage=/^image\\//.test(file.mime_type||""); const visual=isImage ? `<img class="file-thumb" src="/api/files/${encodeURIComponent(file.id)}/download" alt="">` : `<span class="file-thumb" style="display:flex;align-items:center;justify-content:center;font-size:10px">${esc((file.extension||"file").toUpperCase().slice(0,5))}</span>`; return `<a class="message-file" href="/api/files/${encodeURIComponent(file.id)}/download" target="_blank" rel="noopener">${visual}<span>${esc(file.original_name)}</span></a>`; }).join("");
+  const files = (message.files || []).map(file => { const isImage=/^image\//.test(file.mime_type||""); const visual=isImage ? `<img class="file-thumb" src="/api/files/${encodeURIComponent(file.id)}/download" alt="">` : `<span class="file-thumb" style="display:flex;align-items:center;justify-content:center;font-size:10px">${esc((file.extension||"file").toUpperCase().slice(0,5))}</span>`; return `<a class="message-file" href="/api/files/${encodeURIComponent(file.id)}/download" target="_blank" rel="noopener">${visual}<span>${esc(file.original_name)}</span></a>`; }).join("");
   const content = renderMarkdownLite(message.content || "");
   return `<article class="msg ${isUser ? "user" : "assistant"}" data-message-id="${esc(message.id)}">
     <div class="avatar ${isUser ? "user" : "assistant"}">${isUser ? "Вы" : "AI"}</div>
@@ -749,7 +749,7 @@ function normalizeMath(source){
   let inFence=false;
   return lines.map(function(line){
     if(/^\s*```/.test(line)){inFence=!inFence;return line;}
-    if(inFence || /\$\$|\\\\\(|\\\\\[/.test(line)) return line;
+    if(inFence || line.includes("$") || line.includes("\\(") || line.includes("\\[")) return line;
     const t=line.trim();
     if(/^[-+]?\s*(?:\\\\(?:frac|dfrac|sqrt|sum|int|lim|alpha|beta|gamma|Delta|pi|sin|cos|tan|log)|[A-Za-z]_[A-Za-z0-9]+\b|[A-Za-z]\^\{?\d)/.test(t) && /\\\\|\^|_/.test(t)) return "\\\\("+t+"\\\\)";
     return line;
@@ -761,7 +761,7 @@ function renderMarkdownLite(text){
   let html=renderer?renderer.render(source):esc(source).replace(/\n/g,"<br>");
   const hasCode=/```[\s\S]*?```/.test(source);
   const hasTable=/(^|\n)\s*\|.+\|\s*(\n|$)/.test(source);
-  const hasMath=/\\\\\(|\\\\\[|\$\$/.test(source);
+  const hasMath=source.includes("\\(")||source.includes("\\[")||source.includes("$");
   const kind=hasCode?"Код":hasTable?"Таблица":hasMath?"Формула":"";
   return '<div class="md-body">'+(kind?'<div class="content-kind">'+kind+'</div>':"")+html+'</div>';
 }
