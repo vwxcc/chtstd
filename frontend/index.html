@@ -739,9 +739,10 @@ function enhanceCodeBlocks(){
     if(codeEl.closest(".rich-code")) return;
     const pre=codeEl.parentElement, block=document.createElement("div"); block.className="rich-code";
     const head=document.createElement("div"); head.className="rich-code-head";
-    const lang=document.createElement("span"); lang.className="code-lang"; lang.textContent="code"; head.appendChild(lang);
+    const langName=((codeEl.className||"").match(/language-([^\s]+)/)||[])[1]||"code";
+    const lang=document.createElement("span"); lang.className="code-lang"; lang.textContent=langName; head.appendChild(lang);
     ["copy","download","run"].forEach(function(action){const b=document.createElement("button");b.type="button";b.dataset.codeAction=action;b.textContent=action==="copy"?"Копировать":action==="download"?"Скачать":"Исполнить";head.appendChild(b);});
-    const out=document.createElement("div"); out.className="code-output"; block.dataset.lang="python"; block.dataset.code=encodeURIComponent(codeEl.textContent);
+    const out=document.createElement("div"); out.className="code-output"; block.dataset.lang=langName; block.dataset.code=encodeURIComponent(codeEl.textContent);
     pre.replaceWith(block); block.appendChild(head); block.appendChild(pre); block.appendChild(out);
   });
 }
@@ -816,7 +817,7 @@ async function sendMessage() {
   if (!content && !pendingFiles.length) return;
   if (!currentChatId) await newChat();
   try {
-    generating = true; setSendState(true);
+    generating = true; setSendState(true); ensureThinkingBlock();
     const response = await api(`/api/messages?chat_id=${encodeURIComponent(currentChatId)}`, {
       method:"POST",
       body:JSON.stringify({
