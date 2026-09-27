@@ -72,6 +72,9 @@ class Settings(BaseSettings):
     connection_timeout: int = Field(default=20, alias="CONNECTION_TIMEOUT")
     global_ai_concurrency: int = Field(default=2, alias="GLOBAL_AI_CONCURRENCY")
     ai_send_images: bool = Field(default=True, alias="AI_SEND_IMAGES")
+    search_enabled: bool = Field(default=True, alias="SEARCH_ENABLED")
+    search_url: str = Field(default="", alias="SEARCH_URL")
+    search_timeout: int = Field(default=12, alias="SEARCH_TIMEOUT")
 
     # --- Built-in Qwen bootstrap ---
     qwen_base_url: str = Field(default="https://llm.stage.satel.org/v1", alias="QWEN_BASE_URL")
