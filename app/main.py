@@ -98,6 +98,6 @@ if frontend_dir.exists():
         candidate = (frontend_dir / full_path).resolve()
         if frontend_dir in candidate.parents and candidate.is_file():
             return FileResponse(candidate)
-        return FileResponse(frontend_dir / "index.html")
+        return FileResponse(frontend_dir / "index.html", headers={"Cache-Control": "no-store, max-age=0"})
 else:
     logger.warning("FRONTEND_DIR (%s) не найден — отдаётся только API.", frontend_dir)
