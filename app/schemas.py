@@ -116,6 +116,8 @@ class SendMessageRequest(BaseModel):
     file_ids: list[str] = Field(default_factory=list)
     temperature: Optional[float] = Field(default=None, ge=0, le=2)
     effort: Optional[str] = Field(default=None, pattern="^(low|medium|high|max)$")
+    top_p: Optional[float] = Field(default=None, ge=0.05, le=1)
+    max_tokens: Optional[int] = Field(default=None, ge=256, le=32000)
 
 
 class EditMessageRequest(BaseModel):
