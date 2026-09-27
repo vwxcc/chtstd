@@ -223,8 +223,6 @@ async def _call_provider_stream(
             "stream": True}
     if options.get("top_p") is not None:
         body["top_p"] = float(options["top_p"])
-    if options.get("effort"):
-        body["reasoning_effort"] = options["effort"]
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
