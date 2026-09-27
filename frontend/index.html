@@ -650,7 +650,7 @@ $("chatList").addEventListener("click", async event => {
   const action = event.target.closest("[data-action]")?.dataset.action;
   const id = item.dataset.id;
   if (action === "delete") {
-    if (!confirm("Удалить этот чат?")) return;
+    if (!(await showAppDialog("Удалить чат", "Чат и его сообщения будут удалены.", {confirmText:"Удалить", danger:true}))) return;
     try {
       await api(`/api/chats/${id}`, {method:"DELETE"});
       chats = chats.filter(chat => chat.id !== id);
@@ -664,7 +664,7 @@ $("chatList").addEventListener("click", async event => {
   if (action === "rename") {
     const chat = chats.find(c => c.id === id);
     if (!chat) return;
-    const title = prompt("Название чата", chat.title);
+    const title = await showAppDialog("Переименовать чат", "Введите новое название.", {input:true, value:chat.title, confirmText:"Сохранить"});
     if (!title || title.trim() === chat.title) return;
     try {
       const updated = await api(`/api/chats/${id}`, {method:"PATCH", body:JSON.stringify({title:title.trim()})});
@@ -793,8 +793,6 @@ let generationSettings={
   temperature:Number(localStorage.getItem("chatstudio_temperature")||"0.2"),
   effort:localStorage.getItem("chatstudio_effort")||"medium",
   topP:Number(localStorage.getItem("chatstudio_top_p")||"1"),
-  maxTokens:Number(localStorage.getItem("chatstudio_max_tokens")||"32000"),
-  showThinking:localStorage.getItem("chatstudio_show_thinking")!=="0"
 };
 function openGenerationSettings(){
   $("temperatureRange").value=generationSettings.temperature;
@@ -802,9 +800,6 @@ function openGenerationSettings(){
   $("effortSelect").value=generationSettings.effort;
   $("topPRange").value=generationSettings.topP;
   $("topPValue").textContent=generationSettings.topP.toFixed(2);
-  $("maxTokensRange").value=generationSettings.maxTokens;
-  $("maxTokensValue").textContent=String(generationSettings.maxTokens);
-  $("thinkingVisibilityToggle").classList.toggle("on",generationSettings.showThinking);
   $("generationSettingsOverlay").classList.add("open");
 }
 function closeGenerationSettings(){$("generationSettingsOverlay").classList.remove("open");}
@@ -814,8 +809,6 @@ $("generationSettingsOverlay").addEventListener("click",function(e){if(e.target=
 $("temperatureRange").oninput=function(e){generationSettings.temperature=Number(e.target.value);$("temperatureValue").textContent=generationSettings.temperature.toFixed(2);localStorage.setItem("chatstudio_temperature",generationSettings.temperature);};
 $("effortSelect").onchange=function(e){generationSettings.effort=e.target.value;localStorage.setItem("chatstudio_effort",generationSettings.effort);};
 $("topPRange").oninput=function(e){generationSettings.topP=Number(e.target.value);$("topPValue").textContent=generationSettings.topP.toFixed(2);localStorage.setItem("chatstudio_top_p",generationSettings.topP);};
-$("maxTokensRange").oninput=function(e){generationSettings.maxTokens=Number(e.target.value);$("maxTokensValue").textContent=String(generationSettings.maxTokens);localStorage.setItem("chatstudio_max_tokens",generationSettings.maxTokens);};
-$("thinkingVisibilityToggle").onclick=function(){generationSettings.showThinking=!generationSettings.showThinking;$("thinkingVisibilityToggle").classList.toggle("on",generationSettings.showThinking);localStorage.setItem("chatstudio_show_thinking",generationSettings.showThinking?"1":"0");};
 
 $("fileInput").addEventListener("change",async function(e){const files=Array.from(e.target.files||[]);e.target.value="";await uploadPendingFiles(files);});
 async function uploadPendingFiles(files){
@@ -834,6 +827,10 @@ async function uploadPendingFiles(files){
   renderFilePreview();
 }
 
+let appDialogResolver=null;
+function showAppDialog(title,text,opts={}){return new Promise(resolve=>{appDialogResolver=resolve;$("appDialogTitle").textContent=title;$("appDialogText").textContent=text;$("appDialogInput").style.display=opts.input?"block":"none";$("appDialogInput").value=opts.value||"";$("appDialogConfirm").textContent=opts.confirmText||"Подтвердить";$("appDialogConfirm").style.background=opts.danger?"var(--danger)":"var(--accent)";$("appDialogOverlay").classList.add("open");if(opts.input)setTimeout(()=>{$("appDialogInput").focus();$("appDialogInput").select()},0);});}
+function closeAppDialog(result){$("appDialogOverlay").classList.remove("open");if(appDialogResolver){const r=appDialogResolver;appDialogResolver=null;r(result);}}
+$("appDialogCancel").onclick=()=>closeAppDialog(false);$("appDialogClose").onclick=()=>closeAppDialog(false);$("appDialogConfirm").onclick=()=>closeAppDialog($("appDialogInput").style.display!=="none"?$("appDialogInput").value:true);$("appDialogOverlay").addEventListener("click",e=>{if(e.target===$("appDialogOverlay"))closeAppDialog(false)});$("appDialogInput").addEventListener("keydown",e=>{if(e.key==="Enter")$("appDialogConfirm").click()});
 function renderFilePreview() {
   $("filePreviewRow").innerHTML = pendingFiles.map((file,index) => `<div class="file-chip"><span>📎</span><span class="meta"><span class="fname">${esc(file.original_name)}</span><span class="fsize">${fmtBytes(file.size_bytes || file.size || 0)}</span></span><button onclick="removePendingFile(${index})">×</button></div>`).join("");
 }
@@ -845,7 +842,7 @@ async function sendMessage() {
   if (!content && !pendingFiles.length) return;
   if (!currentChatId) await newChat();
   try {
-    generating = true; setSendState(true); ensureThinkingBlock();
+    generating = true; setSendState(true);
     const response = await api(`/api/messages?chat_id=${encodeURIComponent(currentChatId)}`, {
       method:"POST",
       body:JSON.stringify({
@@ -853,12 +850,12 @@ async function sendMessage() {
         file_ids:pendingFiles.map(file => file.id),
         temperature:generationSettings.temperature,
         effort:generationSettings.effort,
-        top_p:generationSettings.topP,
-        max_tokens:generationSettings.maxTokens
+        top_p:generationSettings.topP
       })
     });
     $("composerInput").value=""; autoGrow(); pendingFiles=[]; renderFilePreview();
     renderThread(await api(`/api/messages?chat_id=${encodeURIComponent(currentChatId)}`));
+    ensureThinkingBlock();
     currentRequestId = response.ai_request.id;
     await streamRequest(currentRequestId);
   } catch (e) {
@@ -882,6 +879,7 @@ function updateLastAssistant(content, replace=false) {
   const bubble = assistant.querySelector(".bubble");
   if (replace) bubble.innerHTML = renderMarkdownLite(content || "");
   else {
+    const thinking=$("threadInner").querySelector(".thinking-live"); if(thinking){thinking.classList.remove("thinking-active");thinking.classList.add("hidden");}
     const old = assistant.dataset.raw || "";
     const next = old + (content || "");
     assistant.dataset.raw = next;
@@ -895,12 +893,11 @@ function updateLastAssistant(content, replace=false) {
 function ensureThinkingBlock(){
   let box=$("threadInner").querySelector(".thinking-live");
   if(!box){
-    box=document.createElement("div");box.className="thinking-live";
+    box=document.createElement("div");box.className="thinking-live thinking-active";
     box.innerHTML='<div class="th-head"><span class="thinking-orb"></span><span>Размышление</span><button class="thinking-toggle" type="button">Скрыть</button></div><div class="th-body"></div>';
     $("threadInner").appendChild(box);
     box.querySelector(".thinking-toggle").onclick=function(e){e.stopPropagation();box.classList.toggle("hidden");e.currentTarget.textContent=box.classList.contains("hidden")?"Показать":"Скрыть";};
     box.querySelector(".th-head").onclick=function(){box.classList.toggle("hidden");};
-    if(!generationSettings.showThinking)box.classList.add("hidden");
   }
   return box;
 }
@@ -991,7 +988,9 @@ async function shareChat() {
 }
 
 /* Replace the settings/share affordance behavior without changing the reference visual system. */
-$("hamburgerBtn").onclick = () => $("sidebar").classList.toggle("collapsed");
+function toggleSidebar(collapsed){$("sidebar").classList.toggle("collapsed",collapsed);}
+$("sidebarCollapseBtn").onclick=()=>toggleSidebar(true);
+$("sidebarRevealBtn").onclick=()=>toggleSidebar(false);
 
 renderFilePreview();
 init();
