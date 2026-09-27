@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Chat Studio — в стиле Claude</title>
+<script src="https://cdn.jsdelivr.net/npm/markdown-it@15.0.2/dist/markdown-it.min.js"></script>
 <script>
 window.MathJax = {
   tex: {inlineMath: [['\\(','\\)'], ['
@@ -342,6 +343,22 @@ table.limits tr:last-child td{ border-bottom:none; }
 }
 .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.3); z-index:140; display:none; }
 .scrim.show{ display:block; }
+ 
+.md-body h1,.md-body h2,.md-body h3,.md-body h4,.md-body h5,.md-body h6{margin:20px 0 9px;line-height:1.25}
+.md-body h1{font-size:1.45em}.md-body h2{font-size:1.28em}.md-body h3{font-size:1.12em}
+.md-body table{width:100%;border-collapse:separate;border-spacing:0;margin:14px 0;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.md-body th,.md-body td{padding:9px 11px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);vertical-align:top;text-align:left}
+.md-body th{background:var(--bg-sunken);font-weight:700}.md-body tr:last-child td{border-bottom:0}.md-body th:last-child,.md-body td:last-child{border-right:0}
+.md-body blockquote{margin:12px 0;padding:7px 14px;border-left:3px solid var(--accent);background:var(--bg-sunken);color:var(--text-muted)}
+.md-body hr{border:0;border-top:1px solid var(--border);margin:18px 0}
+.rich-code{margin:14px 0;border:1px solid var(--border-strong);border-radius:11px;overflow:hidden;background:var(--code-bg)}
+.rich-code-head{display:flex;align-items:center;gap:6px;padding:7px 9px;background:rgba(255,255,255,.05);color:var(--code-text);font:11px var(--mono)}
+.rich-code-head .code-lang{flex:1}.rich-code-head button{border:0;background:transparent;color:var(--code-text);cursor:pointer;padding:5px 7px;border-radius:6px;font-size:11px}
+.rich-code-head button:hover{background:rgba(255,255,255,.1)}.rich-code pre{margin:0;padding:13px 14px;overflow:auto}.rich-code pre code{background:none;color:var(--code-text);padding:0;font:12.5px/1.6 var(--mono)}
+.code-output{display:none;border-top:1px solid rgba(255,255,255,.12);padding:10px 14px;white-space:pre-wrap;font:12px/1.5 var(--mono);color:var(--success)}.code-output.show{display:block}.code-output.error{color:var(--danger)}
+.thinking-live{margin:2px 0 12px;border:1px solid var(--border);border-radius:12px;background:linear-gradient(135deg,var(--bg-sunken),var(--bg-elev));overflow:hidden;box-shadow:0 5px 24px rgba(0,0,0,.05)}
+.thinking-live .th-head{display:flex;align-items:center;gap:9px;padding:9px 11px;font-size:12px;color:var(--text-muted);font-weight:600;cursor:pointer}.thinking-orb{width:9px;height:9px;border-radius:50%;background:var(--accent);animation:thinkPulse 1.45s infinite}.thinking-live .th-body{max-height:190px;overflow:auto;padding:0 12px 11px;white-space:pre-wrap;font:12px/1.55 var(--mono);color:var(--text-muted)}.thinking-live.hidden .th-body{display:none}.thinking-toggle{margin-left:auto;border:1px solid var(--border);background:var(--bg-elev);color:var(--text-muted);border-radius:7px;padding:4px 7px;font-size:10.5px;cursor:pointer}
+@keyframes thinkPulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 40%,transparent);transform:scale(.85)}60%{box-shadow:0 0 0 9px transparent;transform:scale(1)}100%{box-shadow:0 0 0 0 transparent;transform:scale(.85)}}
 </style>
 </head>
 <body>
@@ -422,19 +439,12 @@ table.limits tr:last-child td{ border-bottom:none; }
         <div class="file-preview-row" id="filePreviewRow"></div>
         <textarea class="composer-input" id="composerInput" placeholder="Спросите что‑нибудь…" rows="1"></textarea>
         <div class="composer-toolbar">
-          <button class="tool-toggle" id="webSearchToggle" title="Поиск в интернете">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 010 20 15 15 0 010-20"/></svg>
-            Поиск
-          </button>
-          <button class="tool-toggle" id="codeExecToggle" title="Выполнение кода">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg>
-            Код
-          </button>
           <label class="tool-toggle" id="attachBtnWrap" style="cursor:pointer;">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
             Файл
             <input type="file" id="fileInput" multiple style="display:none;">
           </label>
+          <button class="tool-toggle" id="composerSettingsBtn" title="Параметры ответа" type="button">⚙ Параметры</button>
           <div class="spacer"></div>
           <button class="send-btn" id="sendBtn">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
@@ -446,6 +456,16 @@ table.limits tr:last-child td{ border-bottom:none; }
   </div>
 </div>
 
+<div class="modal-overlay" id="generationSettingsOverlay">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-head"><h2>Параметры ответа</h2><button class="icon-btn" id="closeGenerationSettings" type="button">×</button></div>
+    <div class="modal-body">
+      <div class="field-row"><div><div class="lbl">Температура</div><div class="sub">Вариативность ответа</div></div><div style="display:flex;align-items:center;gap:8px"><input id="temperatureRange" type="range" min="0" max="2" step="0.05" value="0.2"><b id="temperatureValue">0.20</b></div></div>
+      <div class="field-row"><div><div class="lbl">Effort</div><div class="sub">Глубина рассуждения</div></div><select id="effortSelect" class="plain"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option><option value="max">Max</option></select></div>
+      <div class="field-row"><div><div class="lbl">Показывать thinking</div><div class="sub">Скрыть/показать поток рассуждений</div></div><button id="thinkingVisibilityToggle" class="toggle on" type="button"></button></div>
+    </div>
+  </div>
+</div>
 <div class="toasts" id="toasts"></div>
 
 <!-- Settings modal -->
