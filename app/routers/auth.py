@@ -84,8 +84,8 @@ async def register(
     await session.refresh(user)
 
     set_session_cookie(response, user.id, settings)
-    set_csrf_cookie(response, settings)  # ротация токена после смены уровня доступа
-
+    # Не ротируем CSRF-токен здесь: браузер уже получил его через /api/auth/csrf,
+    # а клиент продолжает отправлять именно этот токен после регистрации.
     return _to_public(user, settings)
 
 
@@ -108,8 +108,8 @@ async def login(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Неверный email или пароль.")
 
     set_session_cookie(response, user.id, settings)
-    set_csrf_cookie(response, settings)  # ротация токена после логина (защита от session fixation)
-
+    # CSRF-токен не ротируем после логина: клиент уже держит токен,
+    # полученный через /api/auth/csrf, и использует его для следующих запросов.
     return _to_public(user, settings)
 
 
