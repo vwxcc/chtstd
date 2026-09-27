@@ -285,8 +285,12 @@ textarea.composer-input::placeholder{ color:var(--text-faint); }
 .stop-btn{ background:var(--text); }
 .thread-inner{max-width:1180px !important;text-align:left !important;}
 .thread-inner .empty-state{text-align:center;}
-.msg-body{max-width:100% !important;}
-.msg.assistant .bubble{max-width:100% !important;}
+.msg{width:100%;justify-content:flex-start;}
+.msg-body{width:100% !important;max-width:none !important;min-width:0;}
+.msg.assistant .msg-body{width:100% !important;max-width:none !important;align-items:flex-start;}
+.msg.assistant .bubble{width:100%;max-width:none !important;text-align:left;}
+.md-body{width:100%;max-width:none;text-align:left;}
+.md-body p,.md-body li,.md-body td,.md-body th,.md-body blockquote{text-align:left;}
 .limit-note{ text-align:center; font-size:11px; color:var(--text-faint); padding-top:6px; }
 .limit-note button{ background:none; border:none; color:var(--accent); font-weight:600; cursor:pointer; padding:0; }
 
@@ -476,7 +480,9 @@ table.limits tr:last-child td{ border-bottom:none; }
     <div class="modal-body">
       <div class="field-row"><div><div class="lbl">Температура</div><div class="sub">Вариативность ответа</div></div><div style="display:flex;align-items:center;gap:8px"><input id="temperatureRange" type="range" min="0" max="2" step="0.05" value="0.2"><b id="temperatureValue">0.20</b></div></div>
       <div class="field-row"><div><div class="lbl">Effort</div><div class="sub">Глубина рассуждения</div></div><select id="effortSelect" class="plain"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option><option value="max">Max</option></select></div>
-      <div class="field-row"><div><div class="lbl">Показывать thinking</div><div class="sub">Скрыть/показать поток рассуждений</div></div><button id="thinkingVisibilityToggle" class="toggle on" type="button"></button></div>
+      <div class="field-row"><div><div class="lbl">Top P</div><div class="sub">Разнообразие выборки</div></div><div style="display:flex;align-items:center;gap:8px"><input id="topPRange" type="range" min="0.05" max="1" step="0.05" value="1"><b id="topPValue">1.00</b></div></div>
+      <div class="field-row"><div><div class="lbl">Максимум токенов</div><div class="sub">Верхний предел длины ответа</div></div><div style="display:flex;align-items:center;gap:8px"><input id="maxTokensRange" type="range" min="1024" max="32000" step="512" value="32000"><b id="maxTokensValue">32000</b></div></div>
+      <div class="field-row"><div><div class="lbl">Показывать thinking</div><div class="sub">Только статус, без скрытых рассуждений модели</div></div><button id="thinkingVisibilityToggle" class="toggle on" type="button"></button></div>
     </div>
   </div>
 </div>
@@ -511,8 +517,6 @@ let pendingFiles = [];
 let currentStream = null;
 let currentRequestId = null;
 let generating = false;
-let webSearchEnabled = false;
-let codeModeEnabled = false;
 let authRegister = false;
 let models = [];
 let taskRoutes = [];
@@ -723,6 +727,7 @@ function renderThread(messages) {
     return;
   }
   inner.innerHTML = messages.map(messageHtml).join("");
+  enhanceCodeBlocks();
   typesetMath();
   scrollBottom();
 }
@@ -765,7 +770,7 @@ async function handleCodeAction(button){
   if(action==="copy"){await navigator.clipboard.writeText(code);button.textContent="Скопировано";setTimeout(function(){button.textContent="Копировать"},1200);return;}
   if(action==="download"){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([code],{type:"text/plain;charset=utf-8"}));a.download="code."+((block.dataset.lang||"txt").replace(/[^a-z0-9_-]/gi,"")||"txt");a.click();setTimeout(function(){URL.revokeObjectURL(a.href)},500);return;}
   output.className="code-output show"; output.textContent="Выполнение…";
-  try{const result=await api("/api/code/execute",{method:"POST",body:JSON.stringify({language:"python",code:code})});output.className="code-output show"+(result.ok?"":" error");output.textContent=(result.stdout||"")+(result.stderr?((result.stdout?"\n":"")+result.stderr):"")||"Готово без вывода.";}catch(e){output.className="code-output show error";output.textContent=e.message;}
+  try{const result=await api("/api/code/execute",{method:"POST",body:JSON.stringify({language:block.dataset.lang||"python",code:code})});output.className="code-output show"+(result.ok?"":" error");output.textContent=(result.stdout||"")+(result.stderr?((result.stdout?"\n":"")+result.stderr):"")||"Готово без вывода.";}catch(e){output.className="code-output show error";output.textContent=e.message;}
 }
 $("threadInner").addEventListener("click", event => {
   const codeAction=event.target.closest("[data-code-action]");
@@ -789,12 +794,18 @@ $("sendBtn").onclick = () => sendMessage();
 let generationSettings={
   temperature:Number(localStorage.getItem("chatstudio_temperature")||"0.2"),
   effort:localStorage.getItem("chatstudio_effort")||"medium",
+  topP:Number(localStorage.getItem("chatstudio_top_p")||"1"),
+  maxTokens:Number(localStorage.getItem("chatstudio_max_tokens")||"32000"),
   showThinking:localStorage.getItem("chatstudio_show_thinking")!=="0"
 };
 function openGenerationSettings(){
   $("temperatureRange").value=generationSettings.temperature;
   $("temperatureValue").textContent=Number(generationSettings.temperature).toFixed(2);
   $("effortSelect").value=generationSettings.effort;
+  $("topPRange").value=generationSettings.topP;
+  $("topPValue").textContent=generationSettings.topP.toFixed(2);
+  $("maxTokensRange").value=generationSettings.maxTokens;
+  $("maxTokensValue").textContent=String(generationSettings.maxTokens);
   $("thinkingVisibilityToggle").classList.toggle("on",generationSettings.showThinking);
   $("generationSettingsOverlay").classList.add("open");
 }
@@ -804,19 +815,23 @@ $("closeGenerationSettings").onclick=closeGenerationSettings;
 $("generationSettingsOverlay").addEventListener("click",function(e){if(e.target===$("generationSettingsOverlay"))closeGenerationSettings();});
 $("temperatureRange").oninput=function(e){generationSettings.temperature=Number(e.target.value);$("temperatureValue").textContent=generationSettings.temperature.toFixed(2);localStorage.setItem("chatstudio_temperature",generationSettings.temperature);};
 $("effortSelect").onchange=function(e){generationSettings.effort=e.target.value;localStorage.setItem("chatstudio_effort",generationSettings.effort);};
+$("topPRange").oninput=function(e){generationSettings.topP=Number(e.target.value);$("topPValue").textContent=generationSettings.topP.toFixed(2);localStorage.setItem("chatstudio_top_p",generationSettings.topP);};
+$("maxTokensRange").oninput=function(e){generationSettings.maxTokens=Number(e.target.value);$("maxTokensValue").textContent=String(generationSettings.maxTokens);localStorage.setItem("chatstudio_max_tokens",generationSettings.maxTokens);};
 $("thinkingVisibilityToggle").onclick=function(){generationSettings.showThinking=!generationSettings.showThinking;$("thinkingVisibilityToggle").classList.toggle("on",generationSettings.showThinking);localStorage.setItem("chatstudio_show_thinking",generationSettings.showThinking?"1":"0");};
 
 $("fileInput").addEventListener("change",async function(e){const files=Array.from(e.target.files||[]);e.target.value="";await uploadPendingFiles(files);});
 async function uploadPendingFiles(files){
   if(!files||!files.length)return;
-  for(const file of files){
-    try{
-      const result=await api("/api/files",{method:"POST",body:file});
-      if(!result || !result.id) throw new Error("Сервер не вернул ID файла.");
-      pendingFiles.push(result);
-    }catch(e){
-      toast(file.name+": "+e.message);
-    }
+  const form=new FormData();
+  for(const file of files) form.append("files",file,file.name);
+  try{
+    const result=await api("/api/files",{method:"POST",body:form});
+    const uploaded=Array.isArray(result?.files)?result.files:[];
+    if(!uploaded.length) throw new Error("Сервер не вернул загруженные файлы.");
+    pendingFiles.push(...uploaded);
+    if(Array.isArray(result.warnings)) result.warnings.forEach(w=>toast(w));
+  }catch(e){
+    toast("Ошибка загрузки: "+e.message);
   }
   renderFilePreview();
 }
@@ -839,7 +854,9 @@ async function sendMessage() {
         content,
         file_ids:pendingFiles.map(file => file.id),
         temperature:generationSettings.temperature,
-        effort:generationSettings.effort
+        effort:generationSettings.effort,
+        top_p:generationSettings.topP,
+        max_tokens:generationSettings.maxTokens
       })
     });
     $("composerInput").value=""; autoGrow(); pendingFiles=[]; renderFilePreview();
