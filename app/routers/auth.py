@@ -30,13 +30,20 @@ from app.schemas import CsrfResponse, LoginRequest, RegisterRequest, UserPublic
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+PLAN_LABELS = {"free": "Free", "plus": "Plus", "pro": "Pro", "max": "Max"}
+
 def _to_public(user: User, settings: Settings) -> UserPublic:
+    plan_name = getattr(user, "plan_name", "free") or "free"
     return UserPublic(
         id=user.id,
         name=user.name,
         email=user.email,
         created_at=user.created_at,
         is_admin=settings.is_admin(user.email),
+        plan_name=plan_name,
+        plan_display_name=PLAN_LABELS.get(plan_name, plan_name.title()),
+        plan_requests_per_day=0,
+        plan_max_tokens=120000,
     )
 
 
