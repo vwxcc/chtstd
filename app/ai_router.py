@@ -571,6 +571,21 @@ class AIRouterService:
         except Exception:
             routing_set_name, models = None, []
 
+        preferred_model_id = ""
+        try:
+            preferred_model_id = str(json.loads(ai_request.options_json or "{}").get("model_id") or "").strip()
+        except Exception:
+            preferred_model_id = ""
+        if preferred_model_id:
+            preferred = await session.execute(
+                select(ModelConfig, Provider)
+                .join(Provider, Provider.id == ModelConfig.provider_id)
+                .where(ModelConfig.id == preferred_model_id, ModelConfig.enabled.is_(True), Provider.enabled.is_(True))
+            )
+            row = preferred.first()
+            if row:
+                models = [(row[1], row[0])]
+
         if not models:
             ai_request.status = "failed"
             ai_request.error = "Для title_generation не настроен routing set."
@@ -615,6 +630,21 @@ class AIRouterService:
             routing_set_name, models = await resolve_models_for_task(session, "suggestions_generation")
         except Exception:
             routing_set_name, models = None, []
+
+        preferred_model_id = ""
+        try:
+            preferred_model_id = str(json.loads(ai_request.options_json or "{}").get("model_id") or "").strip()
+        except Exception:
+            preferred_model_id = ""
+        if preferred_model_id:
+            preferred = await session.execute(
+                select(ModelConfig, Provider)
+                .join(Provider, Provider.id == ModelConfig.provider_id)
+                .where(ModelConfig.id == preferred_model_id, ModelConfig.enabled.is_(True), Provider.enabled.is_(True))
+            )
+            row = preferred.first()
+            if row:
+                models = [(row[1], row[0])]
 
         if not models:
             ai_request.status = "failed"
@@ -669,31 +699,46 @@ class AIRouterService:
             return
 
         if chat.title in ("Новый чат", ""):
+            title_options = {}
+            try:
+                title_options = json.loads(ai_request.options_json or "{}")
+            except Exception:
+                title_options = {}
             title_request = AIRequest(
                 user_id=ai_request.user_id, chat_id=chat.id, message_id=ai_request.message_id,
                 task="title_generation", status="queued",
+                options_json=json.dumps({"model_id": title_options.get("model_id")} if title_options.get("model_id") else {}, ensure_ascii=False),
             )
             session.add(title_request)
             await session.flush()
             await self.submit(title_request.id)
 
-        # Продолжение/подсказки запускаются после каждого третьего основного ответа.
-        main_count_result = await session.execute(
-            select(AIRequest.id).where(
-                AIRequest.chat_id == chat.id,
-                AIRequest.task == "main_generation",
-                AIRequest.status == "completed",
-            )
+        # Подсказки запускаются через 30 секунд после каждого успешного ответа.
+        # Используется та же модель, которую выбрал пользователь для основного ответа.
+        selected_model_id = None
+        try:
+            selected_model_id = json.loads(ai_request.options_json or "{}").get("model_id")
+        except Exception:
+            selected_model_id = None
+        await session.commit()
+        await asyncio.sleep(30)
+
+        # Пользователь мог удалить чат/сообщение за эти 30 секунд.
+        check_chat = await session.get(Chat, chat.id)
+        if not check_chat:
+            return
+
+        suggestions_request = AIRequest(
+            user_id=ai_request.user_id,
+            chat_id=chat.id,
+            message_id=ai_request.message_id,
+            task="suggestions_generation",
+            status="queued",
+            options_json=json.dumps({"model_id": selected_model_id} if selected_model_id else {}, ensure_ascii=False),
         )
-        main_count = len(main_count_result.scalars().all())
-        if main_count % 3 == 0:
-            suggestions_request = AIRequest(
-                user_id=ai_request.user_id, chat_id=chat.id, message_id=ai_request.message_id,
-                task="suggestions_generation", status="queued",
-            )
-            session.add(suggestions_request)
-            await session.flush()
-            await self.submit(suggestions_request.id)
+        session.add(suggestions_request)
+        await session.flush()
+        await self.submit(suggestions_request.id)
         await session.commit()
 
 
