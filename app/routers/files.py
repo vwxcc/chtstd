@@ -68,58 +68,67 @@ async def upload_files(
     user_dir = _safe_user_dir(settings, user.id)
 
     created: list[FileRecord] = []
+    written_paths: list[Path] = []
     warnings: list[str] = []
     total_size = 0
 
-    for upload in files:
-        original_name = upload.filename or "file"
-        extension = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
+    try:
+        for upload in files:
+            original_name = upload.filename or "file"
+            extension = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
 
-        if extension not in settings.allowed_file_extensions:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Расширение .{extension} не поддерживается.")
+            if extension not in settings.allowed_file_extensions:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Расширение .{extension} не поддерживается.")
 
-        data = await upload.read()
-        size = len(data)
-        total_size += size
+            data = await upload.read()
+            size = len(data)
+            total_size += size
 
-        if size > settings.max_file_size:
-            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"Файл «{original_name}» превышает {settings.max_file_size} байт.")
-        if total_size > settings.max_total_file_size:
-            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Превышен суммарный размер загружаемых файлов.")
+            if size > settings.max_file_size:
+                raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"Файл «{original_name}» превышает {settings.max_file_size} байт.")
+            if total_size > settings.max_total_file_size:
+                raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Превышен суммарный размер загружаемых файлов.")
 
-        # 1) magic bytes (раздел 37)
-        validate_magic_bytes(extension, data)
+            # 1) magic bytes (раздел 37)
+            validate_magic_bytes(extension, data)
 
-        # 2) защита архивов (раздел 38) — для zip-подобных контейнеров
-        if extension in ZIP_BASED_EXTENSIONS:
-            inspect_zip_archive(data, settings)
+            # 2) защита архивов (раздел 38) — для zip-подобных контейнеров
+            if extension in ZIP_BASED_EXTENSIONS:
+                inspect_zip_archive(data, settings)
 
-        # 3) сохранение на диск, путь строго внутри UPLOAD_DIR/user_id/ (раздел 41)
-        stored_name = f"{uuid.uuid4().hex}.{extension}" if extension else uuid.uuid4().hex
-        dest_path = (user_dir / stored_name).resolve()
-        if user_dir not in dest_path.parents:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Недопустимое имя файла.")
-        dest_path.write_bytes(data)
+            # 3) сохранение на диск, путь строго внутри UPLOAD_DIR/user_id/ (раздел 41)
+            stored_name = f"{uuid.uuid4().hex}.{extension}" if extension else uuid.uuid4().hex
+            dest_path = (user_dir / stored_name).resolve()
+            if user_dir not in dest_path.parents:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Недопустимое имя файла.")
+            dest_path.write_bytes(data)
+            written_paths.append(dest_path)
 
-        # 4) извлечение текста (раздел 39) — не фатально при ошибке
-        processed = extract_text(extension, data, settings)
-        if processed.warning:
-            warnings.append(f"{original_name}: {processed.warning}")
+            # 4) извлечение текста (раздел 39) — не фатально при ошибке
+            processed = extract_text(extension, data, settings)
+            if processed.warning:
+                warnings.append(f"{original_name}: {processed.warning}")
 
-        record = FileRecord(
-            user_id=user.id,
-            original_name=original_name[:255],
-            stored_path=str(Path(user.id) / stored_name),
-            extension=extension,
-            mime_type=upload.content_type or guess_mime_type(extension),
-            size_bytes=size,
-            extracted_text=processed.extracted_text,
-        )
-        session.add(record)
-        created.append(record)
+            record = FileRecord(
+                user_id=user.id,
+                original_name=original_name[:255],
+                stored_path=str(Path(user.id) / stored_name),
+                extension=extension,
+                mime_type=upload.content_type or guess_mime_type(extension),
+                size_bytes=size,
+                extracted_text=processed.extracted_text,
+            )
+            session.add(record)
+            created.append(record)
 
-    await session.flush()
-    await session.commit()
+        await session.flush()
+        await session.commit()
+    except Exception:
+        # If validation/processing fails after a previous file was written,
+        # remove those files so the filesystem cannot diverge from the DB.
+        for path in written_paths:
+            path.unlink(missing_ok=True)
+        raise
 
     return {"files": [_to_public(f) for f in created], "warnings": warnings}
 
