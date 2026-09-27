@@ -103,12 +103,15 @@ def _to_public(message: Message) -> MessagePublic:
 
 
 async def _create_generation_request(
-    session: AsyncSession, *, user_id: str, chat: Chat, message: Message | None
+    session: AsyncSession, *, user_id: str, chat: Chat, message: Message | None, options: dict | None = None
 ) -> AIRequestPublic:
     """Создаёт ai_requests(task='main_generation'); ловит нарушение partial
     unique индекса (раздел 23) и превращает его в понятную 409-ошибку."""
     try:
         ai_request = await create_ai_request(session, user_id=user_id, chat=chat, message=message)
+        if options:
+            import json
+            ai_request.options_json = json.dumps(options, ensure_ascii=False)
         await session.commit()
     except IntegrityError:
         await session.rollback()
@@ -171,7 +174,12 @@ async def send_message(
     chat.updated_at = dt.datetime.now(dt.timezone.utc)
     await session.refresh(message, attribute_names=["message_files"])
 
-    ai_request = await _create_generation_request(session, user_id=user.id, chat=chat, message=message)
+    options = {}
+    if payload.temperature is not None:
+        options["temperature"] = payload.temperature
+    if payload.effort:
+        options["effort"] = payload.effort
+    ai_request = await _create_generation_request(session, user_id=user.id, chat=chat, message=message, options=options)
 
     return {"message": _to_public(message), "ai_request": ai_request}
 
