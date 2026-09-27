@@ -24,16 +24,7 @@ jobs:
       - name: Import FastAPI application
         env:
           SESSION_SECRET: "ci-test-session-secret-123456"
-        run: |
-          python - <<'PY'
-          import traceback
-          try:
-              from app.main import app
-              print(app.title)
-          except Exception:
-              traceback.print_exc()
-              raise
-          PY
+        run: python -c "from app.main import app; print(app.title)"
 
       - name: Verify application entrypoint
         env:
