@@ -2,9 +2,8 @@
 ChatStudio — точка входа (раздел 51-59 ТЗ).
 
 Запуск (локально, без Docker):
-    cd backend
-    pip install -r ../requirements.txt
-    uvicorn main:app --host 0.0.0.0 --port 8000
+    pip install -r requirements.txt
+    uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 В Docker — см. Dockerfile/docker-compose.yml в корне проекта.
 """
