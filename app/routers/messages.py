@@ -10,6 +10,8 @@ app/ai_router.py (следующий файл по плану). Пока он н
 
 from __future__ import annotations
 
+import datetime as dt
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -165,6 +167,7 @@ async def send_message(
         session.add(MessageFile(message_id=message.id, file_id=f.id))
 
     await session.flush()
+    chat.updated_at = dt.datetime.now(dt.timezone.utc)
     await session.refresh(message, attribute_names=["message_files"])
 
     ai_request = await _create_generation_request(session, user_id=user.id, chat=chat, message=message)
