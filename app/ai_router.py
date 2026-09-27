@@ -219,7 +219,10 @@ async def _call_provider_stream(
     options = options or {}
     body = {"model": model.model_name, "messages": messages,
             "temperature": float(options.get("temperature", model.temperature)),
-            "max_tokens": model.max_tokens, "stream": True}
+            "max_tokens": max(256, min(int(options.get("max_tokens", model.max_tokens)), model.max_tokens)),
+            "stream": True}
+    if options.get("top_p") is not None:
+        body["top_p"] = float(options["top_p"])
     if options.get("effort"):
         body["reasoning_effort"] = options["effort"]
     headers = {"Content-Type": "application/json"}
