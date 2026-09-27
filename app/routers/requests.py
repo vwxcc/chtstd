@@ -100,8 +100,8 @@ async def stream_request(
                         break
                     continue
 
-                if event.kind == "delta":
-                    yield f"event: delta\ndata: {json.dumps({'text': event.text})}\n\n"
+                if event.kind in ("delta", "thinking"):
+                    yield f"event: {event.kind}\ndata: {json.dumps({'text': event.text})}\n\n"
                 elif event.kind == "replace":
                     yield f"event: replace\ndata: {json.dumps({'text': event.text})}\n\n"
                 else:
