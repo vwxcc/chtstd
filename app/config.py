@@ -14,6 +14,20 @@ from pathlib import Path
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pathlib import Path
+import os
+
+# Persistent ENV overrides written by the administrator from the web panel.
+_RUNTIME_ENV = Path(os.getenv("CHATSTUDIO_DATA_DIR", "./data")) / "runtime.env"
+if _RUNTIME_ENV.exists():
+    for _line in _RUNTIME_ENV.read_text(encoding="utf-8").splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _key, _value = _line.split("=", 1)
+            _key, _value = _key.strip(), _value.strip().strip('"').strip("'")
+            if _key:
+                os.environ[_key] = _value
+
 
 # Имя переменной API-ключа провайдера должно соответствовать этому паттерну (раздел 26 ТЗ)
 ENV_VAR_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
