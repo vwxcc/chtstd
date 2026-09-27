@@ -363,7 +363,7 @@ table.limits tr:last-child td{ border-bottom:none; }
 .scrim{ position:fixed; inset:0; background:rgba(0,0,0,.3); z-index:140; display:none; }
 .scrim.show{ display:block; }
  
-.md-body h1,.md-body h2,.md-body h3,.md-body h4,.md-body h5,.md-body h6{margin:20px 0 9px;line-height:1.25}
+.content-kind{display:inline-flex;align-items:center;padding:4px 8px;margin:0 0 9px;border:1px solid var(--border);border-radius:7px;background:var(--bg-sunken);color:var(--text-muted);font-size:10.5px;font-weight:700}.md-body h1,.md-body h2,.md-body h3,.md-body h4,.md-body h5,.md-body h6{margin:20px 0 9px;line-height:1.25}
 .md-body h1{font-size:1.45em}.md-body h2{font-size:1.28em}.md-body h3{font-size:1.12em}
 .md-body table{width:100%;border-collapse:separate;border-spacing:0;margin:14px 0;border:1px solid var(--border);border-radius:10px;overflow:hidden}
 .md-body th,.md-body td{padding:9px 11px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);vertical-align:top;text-align:left}
@@ -734,22 +734,35 @@ function renderThread(messages) {
 function messageHtml(message) {
   const isUser = message.role === "user";
   const model = message.role === "assistant" && message.model ? `<div class="model-tag">${esc(message.provider || "AI")} · ${esc(message.model)}</div>` : "";
-  const files = (message.files || []).map(file => `<span class="attach-chip">📎 ${esc(file.original_name)}</span>`).join("");
+  const files = (message.files || []).map(file => { const isImage=/^image\\//.test(file.mime_type||""); const visual=isImage ? `<img class="file-thumb" src="/api/files/${encodeURIComponent(file.id)}/download" alt="">` : `<span class="file-thumb" style="display:flex;align-items:center;justify-content:center;font-size:10px">${esc((file.extension||"file").toUpperCase().slice(0,5))}</span>`; return `<a class="message-file" href="/api/files/${encodeURIComponent(file.id)}/download" target="_blank" rel="noopener">${visual}<span>${esc(file.original_name)}</span></a>`; }).join("");
   const content = renderMarkdownLite(message.content || "");
   return `<article class="msg ${isUser ? "user" : "assistant"}" data-message-id="${esc(message.id)}">
-    <div class="avatar ${isUser ? "user" : "assistant"}">${isUser ? "Вы" : "✳"}</div>
-    <div class="msg-body"><div class="bubble">${model}${content}</div>${files ? `<div class="attach-chips">${files}</div>` : ""}</div>
+    <div class="avatar ${isUser ? "user" : "assistant"}">${isUser ? "Вы" : "AI"}</div>
+    <div class="msg-body"><div class="bubble">${model}${content}</div>${files ? `<div class="message-file-list">${files}</div>` : ""}</div>
   </article>`;
 }
 
 function normalizeMath(source){
-  return source.split(/\n{2,}/).map(function(block){
-    const t=block.trim();
-    if(t.length>35 && /\\(frac|int|sum|sqrt|dfrac|begin|left|right)/.test(t) && !t.includes("+++CODEFENCE+++")) return "$$"+t+"$$";
-    return block;
-  }).join("\n\n");
+  const lines=String(source||"").split("\n");
+  let inFence=false;
+  return lines.map(function(line){
+    if(/^\s*```/.test(line)){inFence=!inFence;return line;}
+    if(inFence || /\$\$|\\\\\(|\\\\\[/.test(line)) return line;
+    const t=line.trim();
+    if(/^[-+]?\s*(?:\\\\(?:frac|dfrac|sqrt|sum|int|lim|alpha|beta|gamma|Delta|pi|sin|cos|tan|log)|[A-Za-z]_[A-Za-z0-9]+\b|[A-Za-z]\^\{?\d)/.test(t) && /\\\\|\^|_/.test(t)) return "\\\\("+t+"\\\\)";
+    return line;
+  }).join("\n");
 }
-function renderMarkdownLite(text){ const renderer=window.markdownit?window.markdownit({html:false,linkify:true,typographer:true,breaks:true}):null; const source=normalizeMath(String(text||"")); return '<div class="md-body">'+(renderer?renderer.render(source):esc(source).replace(/\n/g,"<br>"))+'</div>'; }
+function renderMarkdownLite(text){
+  const renderer=window.markdownit?window.markdownit({html:false,linkify:true,typographer:false,breaks:false}):null;
+  const source=normalizeMath(String(text||""));
+  let html=renderer?renderer.render(source):esc(source).replace(/\n/g,"<br>");
+  const hasCode=/```[\s\S]*?```/.test(source);
+  const hasTable=/(^|\n)\s*\|.+\|\s*(\n|$)/.test(source);
+  const hasMath=/\\\\\(|\\\\\[|\$\$/.test(source);
+  const kind=hasCode?"Код":hasTable?"Таблица":hasMath?"Формула":"";
+  return '<div class="md-body">'+(kind?'<div class="content-kind">'+kind+'</div>':"")+html+'</div>';
+}
 function rerenderMath(){ if(window.MathJax&&window.MathJax.typesetPromise) MathJax.typesetPromise([$("threadInner")]).catch(function(){}); }
 function enhanceCodeBlocks(){
   document.querySelectorAll("#threadInner pre > code").forEach(function(codeEl){
