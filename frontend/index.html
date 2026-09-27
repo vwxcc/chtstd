@@ -467,6 +467,8 @@ let pendingFiles = [];
 let currentStream = null;
 let currentRequestId = null;
 let generating = false;
+let webSearchEnabled = false;
+let codeModeEnabled = false;
 let authRegister = false;
 let models = [];
 let taskRoutes = [];
@@ -672,7 +674,7 @@ function renderThread(messages) {
     inner.innerHTML = `<div class="empty-state">
       <div class="mark">✳</div><h1>Чем займёмся?</h1>
       <p>Задайте вопрос, приложите файлы и получите ответ от подключённой модели.</p>
-      <div class="suggest-row"><button class="suggest-chip" data-fill="Объясни мне тему простыми словами">Объяснить тему</button><button class="suggest-chip" data-fill="Реши задачу и подробно проверь решение">Решить задачу</button><button class="suggest-chip" data-fill="Помоги написать код">Помочь с кодом</button></div>
+      <div style="margin-top:18px;color:var(--text-faint);font-size:12px">Напишите сообщение ниже или прикрепите файл.</div>
     </div>`;
     return;
   }
@@ -714,6 +716,26 @@ function autoGrow() { const input = $("composerInput"); input.style.height="auto
 $("composerInput").addEventListener("input", autoGrow);
 $("composerInput").addEventListener("keydown", event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendMessage(); } });
 
+$("sendBtn").onclick = () => sendMessage();
+
+$("webSearchToggle").onclick = () => {
+  webSearchEnabled = !webSearchEnabled;
+  $("webSearchToggle").classList.toggle("on", webSearchEnabled);
+  $("webSearchToggle").title = webSearchEnabled
+    ? "Режим поиска включён"
+    : "Поиск выключен";
+  toast(webSearchEnabled ? "Режим поиска включён" : "Режим поиска выключен");
+};
+
+$("codeExecToggle").onclick = () => {
+  codeModeEnabled = !codeModeEnabled;
+  $("codeExecToggle").classList.toggle("on", codeModeEnabled);
+  $("codeExecToggle").title = codeModeEnabled
+    ? "Режим кода включён"
+    : "Режим кода выключен";
+  toast(codeModeEnabled ? "Режим кода включён" : "Режим кода выключен");
+};
+
 async function uploadPendingFiles(fileList) {
   const files = [...fileList];
   if (!files.length) return;
@@ -740,7 +762,11 @@ async function sendMessage() {
   try {
     generating = true; setSendState(true);
     const response = await api(`/api/messages?chat_id=${encodeURIComponent(currentChatId)}`, {
-      method:"POST", body:JSON.stringify({content, file_ids:pendingFiles.map(file => file.id)})
+      method:"POST",
+      body:JSON.stringify({
+        content,
+        file_ids:pendingFiles.map(file => file.id)
+      })
     });
     $("composerInput").value=""; autoGrow(); pendingFiles=[]; renderFilePreview();
     renderThread(await api(`/api/messages?chat_id=${encodeURIComponent(currentChatId)}`));
