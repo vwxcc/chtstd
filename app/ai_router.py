@@ -459,6 +459,8 @@ class AIRouterService:
             routing_set_name, models = None, []
             logger.exception("Ошибка разрешения routing set для задачи %s", ai_request.task)
 
+        self._publish(ai_request.id, StreamEvent("thinking", "Модель размышляет и готовит ответ…"))
+
         if not models:
             ai_request.status = "failed"
             ai_request.error = "Для этой задачи не настроен рабочий routing set."
