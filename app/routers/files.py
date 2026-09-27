@@ -77,7 +77,8 @@ async def upload_files(
             original_name = upload.filename or "file"
             extension = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
 
-            if extension not in settings.allowed_file_extensions:
+            # Пустой список allowed_file_extensions означает: разрешены все расширения.
+            if settings.allowed_file_extensions and extension not in settings.allowed_file_extensions:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Расширение .{extension} не поддерживается.")
 
             data = await upload.read()
