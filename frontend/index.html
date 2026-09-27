@@ -344,7 +344,7 @@ table.limits tr:last-child td{ border-bottom:none; }
 #generationSettingsOverlay select{min-width:110px;}
 .notice-box{ font-size:12px; color:var(--text-muted); background:var(--bg-sunken); border:1px solid var(--border); border-radius:8px; padding:10px 12px; line-height:1.6; }
 
-.chat-header{justify-content:center;position:relative}.chat-header-side{width:120px}.chat-title-wrap{position:absolute;left:50%;transform:translateX(-50%);max-width:45%;text-align:center}.chat-title{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.chat-header-actions{margin-left:auto;display:flex;align-items:center;gap:3px}.model-picker-bottom{position:relative;z-index:60}.composer-toolbar .model-select{min-width:150px;justify-content:center}.modal-body .newchat-btn{min-height:38px;padding:8px 14px}.modal-body .icon-btn{width:34px;height:34px}.modal-body .selectlike,.modal-body select.plain{min-height:38px}.modal-body .field-row{flex-wrap:wrap}.modal-body .field-row>input,.modal-body .field-row>select{flex:1 1 170px;min-width:150px}.modal-body .field-row>button{flex:0 0 auto}
+.chat-header{justify-content:center;position:relative}.chat-header-side{width:120px}.chat-title-wrap{position:absolute;left:50%;transform:translateX(-50%);max-width:45%;text-align:center}.chat-title{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.chat-header-actions{margin-left:auto;display:flex;align-items:center;gap:3px}.model-picker-bottom{position:relative;z-index:60}.composer-toolbar .model-select{min-width:150px;justify-content:center}.modal-body .newchat-btn{min-height:38px;padding:8px 14px}.modal-body .icon-btn{width:34px;height:34px}.modal-body .selectlike,.modal-body select.plain{min-height:38px}.modal-body .field-row{flex-wrap:wrap}.modal-body .field-row>input,.modal-body .field-row>select{flex:1 1 170px;min-width:150px}.modal-body .field-row>button{flex:0 0 auto}.model-picker-bottom .dropdown{top:auto;bottom:calc(100% + 8px);transform-origin:bottom center}.admin-config-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px}.admin-config-head h3{margin:0 0 5px}.admin-env{width:100%;min-height:430px;resize:vertical;border:1px solid var(--border);border-radius:12px;background:var(--bg-sunken);color:var(--text);padding:14px;font:12px/1.65 JetBrains Mono,monospace;outline:none}.admin-env:focus{border-color:var(--accent)}.admin-env-help{margin-top:12px;padding:12px;border:1px solid var(--border);border-radius:10px;color:var(--text-muted);font-size:12px;line-height:1.6}.admin-muted{color:var(--text-muted)}.plan-admin-card{border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:10px}.plan-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}.plan-grid label{font-size:11px;color:var(--text-muted);display:flex;flex-direction:column;gap:5px}.plan-grid input{width:100%;min-height:36px;border:1px solid var(--border);border-radius:8px;padding:7px;background:var(--bg);color:var(--text)}
 /* toasts */
 .toasts{ position:fixed; bottom:18px; left:50%; transform:translateX(-50%); display:flex; flex-direction:column; gap:8px; z-index:300; }
 .toast{ background:var(--text); color:var(--bg); padding:9px 16px; border-radius:100px; font-size:12.5px; box-shadow:0 8px 24px rgba(0,0,0,.2); }
@@ -499,8 +499,8 @@ table.limits tr:last-child td{ border-bottom:none; }
     </div>
     <div class="modal-tabs" id="modalTabs">
       <button class="modal-tab active" data-tab="general">Общие</button>
-      <button class="modal-tab" data-tab="limits">Модели и лимиты</button>
-      <button class="modal-tab" data-tab="routing">Маршрутизация</button>
+      <button class="modal-tab" data-tab="limits">Модели</button>
+      
       <button class="modal-tab" data-tab="plan">Подписка</button>
     </div>
     <div class="modal-body" id="modalBody"></div>
@@ -1004,48 +1004,32 @@ $("upgradeLinkSidebar").onclick = () => toast("Тарифная система �
 
 function renderModalBody() {
   const body = $("modalBody");
-  if (!me?.is_admin && modalTab !== "general" && modalTab !== "plan") {
-    body.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Этот раздел доступен администратору.</p>';
-    return;
-  }
   if (modalTab === "general") {
-    body.innerHTML = '<h3>Общие</h3><div class="field-row"><div><div class="lbl">Аккаунт</div><div class="sub">'+esc(me?.name||"")+' · '+esc(me?.email||"")+'</div></div><button class="newchat-btn" style="width:auto" onclick="logout()">Выйти</button></div><div class="field-row"><div><div class="lbl">Тема</div><div class="sub">Светлая или тёмная тема интерфейса</div></div><div class="seg"><button onclick="setTheme(\'light\')">Светлая</button><button onclick="setTheme(\'dark\')">Тёмная</button></div></div>';
+    body.innerHTML = '<h3>Общие</h3><div class="field-row"><div><div class="lbl">Аккаунт</div><div class="sub">'+esc(me?.name||"")+' · '+esc(me?.email||"")+'</div></div><button class="newchat-btn" style="width:auto" onclick="logout()">Выйти</button></div>';
     return;
   }
   if (modalTab === "limits") {
-    if (!me?.is_admin) { body.innerHTML='<p style="color:var(--text-muted)">Только администратор.</p>'; return; }
-    const providerOptions=providers.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.name)+'</option>').join("");
-    const modelRows=models.map(m=>'<div class="field-row"><div><div class="lbl">'+esc(m.display_name)+'</div><div class="sub">'+esc(m.model_name)+' · '+m.max_tokens+' токенов · '+m.timeout+'с</div></div><button class="icon-btn" data-admin-disable-model="'+m.id+'">'+(m.enabled?'Отключить':'Включить')+'</button></div>').join("");
-    const providerRows=providers.map(p=>'<div class="field-row"><div><div class="lbl">'+esc(p.name)+'</div><div class="sub">'+esc(p.base_url)+' · '+esc(p.api_key_env)+'</div></div><span class="badge '+(p.enabled?'pro':'free')+'">'+(p.enabled?'ON':'OFF')+'</span></div>').join("");
-    body.innerHTML='<h3>Провайдеры</h3>'+providerRows+
-      '<div class="notice-box">Добавление провайдера</div><div class="field-row"><input id="newProviderName" class="selectlike" placeholder="Название"><input id="newProviderUrl" class="selectlike" placeholder="https://host/v1"><input id="newProviderKey" class="selectlike" placeholder="API_KEY_ENV"><button class="newchat-btn" id="addProviderBtn" style="width:auto">Добавить</button></div>'+
-      '<h3 style="margin-top:18px">Модели</h3>'+modelRows+
-      '<div class="notice-box">Добавление модели</div><div class="field-row"><select id="newModelProvider" class="plain">'+providerOptions+'</select><input id="newModelDisplay" class="selectlike" placeholder="Название"><input id="newModelName" class="selectlike" placeholder="model-id"><input id="newModelTokens" class="selectlike" type="number" value="120000"><button class="newchat-btn" id="addModelBtn" style="width:auto">Добавить</button></div>';
-    bindAdminControls();
-    return;
-  }
-  if (modalTab === "routing") {
-    if (!me?.is_admin) { body.innerHTML='<p style="color:var(--text-muted)">Только администратор.</p>'; return; }
-    const setOptions=routingSets.map(r=>'<option value="'+esc(r.id)+'">'+esc(r.name)+'</option>').join("");
-    const routes=taskRoutes.map(r=>'<div class="field-row"><div><div class="lbl">'+esc(r.task_name)+'</div><div class="sub">'+esc(r.routing_set_name||"не назначен")+'</div></div><select class="plain" data-route-task="'+esc(r.task_name)+'"><option value="">Не назначен</option>'+setOptions+'</select><button class="newchat-btn" data-save-route="'+esc(r.task_name)+'" style="width:auto">Сохранить</button></div>').join("");
-    body.innerHTML='<h3>Routing sets</h3>'+routingSets.map(r=>'<div class="field-row"><div><div class="lbl">'+esc(r.name)+'</div><div class="sub">'+r.entries.length+' моделей</div></div></div>').join("")+
-      '<div class="field-row"><input id="newRoutingName" class="selectlike" placeholder="Название routing set"><button class="newchat-btn" id="addRoutingBtn" style="width:auto">Добавить</button></div>'+
-      '<h3 style="margin-top:18px">Task routes</h3>'+routes;
-    taskRoutes.forEach(r=>{const el=document.querySelector('[data-route-task="'+r.task_name+'"]');if(el)el.value=r.routing_set_id||"";});
-    bindAdminControls();
+    if (!me?.is_admin) { body.innerHTML='<p class="admin-muted">Только администратор.</p>'; return; }
+    body.innerHTML = '<div class="admin-config-head"><div><h3>Модели и кластеры</h3><div class="sub">Одна конфигурация ENV. Порядок моделей в кластере = порядок fallback.</div></div><button class="newchat-btn" id="saveRuntimeEnv">Применить</button></div>'+
+      '<textarea id="runtimeEnv" class="admin-env" spellcheck="false" placeholder="MODEL_QWEN_NAME=Qwen 3.5 35B\nMODEL_QWEN_ID=qwen36-35b\nMODEL_QWEN_BASE=https://example/v1\nMODEL_QWEN_KEY=...\nMODEL_QWEN_FILE_INFO=...\n\nCLUSTER_GENERATION=QWEN\nCLUSTER_TITLE=QWEN\nCLUSTER_CONTINUE=QWEN"></textarea>'+
+      '<div class="admin-env-help"><b>Схема</b><br>Пользователь видит только MODEL_*_NAME. Внутри: ID — реальное имя модели; BASE — endpoint; KEY — ключ; FILE_INFO — служебный текст, который добавляется в начало каждого отправляемого к модели текстового файла.<br><br><b>Кластеры</b><br>CLUSTER_GENERATION — основная генерация; CLUSTER_TITLE — заголовки; CLUSTER_CONTINUE — продолжение. В каждой строке минимум одна модель, через запятую — fallback 1 → 2 → 3.</div>';
+    api("/api/routing/runtime-env").then(x=>{$("runtimeEnv").value=x.content||"";}).catch(e=>toast(e.message));
+    setTimeout(()=>{$("saveRuntimeEnv").onclick=async()=>{try{await api("/api/routing/runtime-env",{method:"POST",body:JSON.stringify({content:$("runtimeEnv").value})});await loadRoutingInfo();renderAll();toast("Конфигурация применена");}catch(e){toast(e.message)}}},0);
     return;
   }
   if (modalTab === "plan") {
-    if (!me?.is_admin) {
-      const p=me?.plan_display_name||"Free";
-      body.innerHTML='<h3>Ваш тариф</h3><div class="plan-card"><h4>'+esc(p)+'</h4><div class="sub">Лимиты назначаются администратором.</div></div>';
-      return;
-    }
-    body.innerHTML='<h3>Тарифы</h3>'+plans.map(p=>'<div class="plan-card '+(p.name==="pro"?'pro':'')+'"><h4>'+esc(p.display_name)+' <span style="font-size:10px;color:var(--text-faint)">('+esc(p.name)+')</span></h4><div class="field-row"><span>Запросов / 24ч</span><input class="selectlike" type="number" data-plan-field="'+p.name+':requests_per_day" value="'+p.requests_per_day+'"></div><div class="field-row"><span>Макс. токенов</span><input class="selectlike" type="number" data-plan-field="'+p.name+':max_tokens" value="'+p.max_tokens+'"></div><div class="field-row"><span>Макс. файлов</span><input class="selectlike" type="number" data-plan-field="'+p.name+':max_files_per_request" value="'+p.max_files_per_request+'"></div><div class="field-row"><span>Размер файлов</span><input class="selectlike" type="number" data-plan-field="'+p.name+':max_total_file_size" value="'+p.max_total_file_size+'"></div><button class="newchat-btn" data-save-plan="'+p.name+'">Сохранить тариф</button></div>').join("");
+    if (!me?.is_admin) { body.innerHTML='<p class="admin-muted">Только администратор.</p>'; return; }
+    body.innerHTML = plans.map(plan => '<div class="plan-admin-card"><div><b>'+esc(plan.display_name)+'</b><div class="sub">'+esc(plan.name)+'</div></div><div class="plan-grid">'+
+      '<label>Запросов/сутки<input data-plan-field="'+plan.name+':requests_per_day" type="number" value="'+plan.requests_per_day+'"></label>'+
+      '<label>Токенов<input data-plan-field="'+plan.name+':max_tokens" type="number" value="'+plan.max_tokens+'"></label>'+
+      '<label>Файлов<input data-plan-field="'+plan.name+':max_files_per_request" type="number" value="'+plan.max_files_per_request+'"></label>'+
+      '<label>Размер, МБ<input data-plan-field="'+plan.name+':max_total_file_size" type="number" value="'+Math.round(plan.max_total_file_size/1048576)+'"></label></div>'+
+      '<button class="newchat-btn" data-save-plan="'+plan.name+'">Сохранить</button></div>').join("");
     bindAdminControls();
+    return;
   }
 }
-async function bindAdminControls(){
+function bindAdminControls(){
   const addProvider=$("addProviderBtn");
   if(addProvider) addProvider.onclick=async()=>{try{await api("/api/routing/providers",{method:"POST",body:JSON.stringify({name:$("newProviderName").value,base_url:$("newProviderUrl").value,api_key_env:$("newProviderKey").value,enabled:true})});await loadRoutingInfo();renderModalBody();toast("Провайдер добавлен");}catch(e){toast(e.message)}};
   const addModel=$("addModelBtn");
