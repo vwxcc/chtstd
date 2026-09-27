@@ -46,13 +46,13 @@ class Settings(BaseSettings):
 
     # --- Ограничения ввода ---
     max_name_length: int = Field(default=80, alias="MAX_NAME_LENGTH")
-    max_prompt_length: int = Field(default=30000, alias="MAX_PROMPT_LENGTH")
+    max_prompt_length: int = Field(default=150000, alias="MAX_PROMPT_LENGTH")
     max_search_length: int = Field(default=200, alias="MAX_SEARCH_LENGTH")
 
     # --- Файлы ---
-    max_file_size: int = Field(default=20 * 1024 * 1024, alias="MAX_FILE_SIZE")
-    max_total_file_size: int = Field(default=50 * 1024 * 1024, alias="MAX_TOTAL_FILE_SIZE")
-    max_files_per_request: int = Field(default=20, alias="MAX_FILES_PER_REQUEST")
+    max_file_size: int = Field(default=100 * 1024 * 1024, alias="MAX_FILE_SIZE")
+    max_total_file_size: int = Field(default=250 * 1024 * 1024, alias="MAX_TOTAL_FILE_SIZE")
+    max_files_per_request: int = Field(default=100, alias="MAX_FILES_PER_REQUEST")
     max_file_context_chars: int = Field(default=500_000, alias="MAX_FILE_CONTEXT_CHARS")
 
     max_archive_entries: int = Field(default=2000, alias="MAX_ARCHIVE_ENTRIES")
