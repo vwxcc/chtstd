@@ -132,14 +132,14 @@ async def update_provider(
     return _provider_public(provider)
 
 
-@router.delete("/providers/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/providers/{provider_id}", status_code=status.HTTP_200_OK)
 async def delete_provider(
     provider_id: str,
     request: Request,
     settings: Settings = Depends(get_settings),
     admin: User = Depends(_admin),
     session: AsyncSession = Depends(get_session),
-) -> None:
+) -> dict:
     enforce_csrf(request, settings)
     provider = await session.get(Provider, provider_id)
     if not provider:
@@ -151,6 +151,7 @@ async def delete_provider(
 
     await session.delete(provider)
     await session.commit()
+    return {"ok": True}
 
 
 # --------------------------------------------------------------------------
@@ -249,7 +250,7 @@ async def delete_model(
     settings: Settings = Depends(get_settings),
     admin: User = Depends(_admin),
     session: AsyncSession = Depends(get_session),
-) -> None:
+) -> dict:
     enforce_csrf(request, settings)
     model = await session.get(ModelConfig, model_id)
     if not model:
@@ -263,6 +264,7 @@ async def delete_model(
 
     await session.delete(model)
     await session.commit()
+    return {"ok": True}
 
 
 # --------------------------------------------------------------------------
@@ -357,7 +359,7 @@ async def delete_routing_set(
     settings: Settings = Depends(get_settings),
     admin: User = Depends(_admin),
     session: AsyncSession = Depends(get_session),
-) -> None:
+) -> dict:
     enforce_csrf(request, settings)
     rs = await session.get(RoutingSet, routing_set_id)
     if not rs:
@@ -369,6 +371,7 @@ async def delete_routing_set(
 
     await session.delete(rs)
     await session.commit()
+    return {"ok": True}
 
 
 # --------------------------------------------------------------------------
