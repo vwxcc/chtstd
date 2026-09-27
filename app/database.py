@@ -253,6 +253,7 @@ class ModelConfig(Base):
 
     display_name: Mapped[str] = mapped_column(String(120), nullable=False)
     model_name: Mapped[str] = mapped_column(String(200), nullable=False)  # реальное имя модели у провайдера
+    request_prefix: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     temperature: Mapped[float] = mapped_column(default=0.2)
     max_tokens: Mapped[int] = mapped_column(Integer, default=32000)
@@ -426,6 +427,10 @@ async def init_db() -> None:
         columns = {row[1] for row in result.fetchall()}
         if "options_json" not in columns:
             await conn.exec_driver_sql("ALTER TABLE ai_requests ADD COLUMN options_json TEXT")
+        result = await conn.exec_driver_sql("PRAGMA table_info(model_configs)")
+        model_columns = {row[1] for row in result.fetchall()}
+        if "request_prefix" not in model_columns:
+            await conn.exec_driver_sql("ALTER TABLE model_configs ADD COLUMN request_prefix TEXT")
         result = await conn.exec_driver_sql("PRAGMA table_info(users)")
         user_columns = {row[1] for row in result.fetchall()}
         if "plan_name" not in user_columns:
