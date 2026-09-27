@@ -213,6 +213,7 @@ class ModelCreate(BaseModel):
     provider_id: str
     display_name: str = Field(min_length=1, max_length=120)
     model_name: str = Field(min_length=1, max_length=200)
+    request_prefix: Optional[str] = None
     temperature: float = 0.2
     max_tokens: int = 32000
     timeout: int = 300
@@ -222,6 +223,7 @@ class ModelCreate(BaseModel):
 class ModelUpdate(BaseModel):
     display_name: Optional[str] = None
     model_name: Optional[str] = None
+    request_prefix: Optional[str] = None
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
     timeout: Optional[int] = None
