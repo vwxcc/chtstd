@@ -46,6 +46,10 @@ def load_runtime_env() -> None:
             if key:
                 import os
                 os.environ[key] = value
+                # Runtime model providers reference CHATSTUDIO_RUNTIME_MODEL_*_KEY,
+                # while the persisted runtime.env stores the user-facing MODEL_*_KEY.
+                if key.startswith("MODEL_") and key.endswith("_KEY"):
+                    os.environ["CHATSTUDIO_RUNTIME_" + key] = value
     except Exception:
         logger.exception("Не удалось загрузить runtime.env")
 
