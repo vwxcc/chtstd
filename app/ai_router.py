@@ -50,6 +50,7 @@ from app.database import (
     RoutingSet,
     RoutingSetModel,
     TaskRoute,
+    User,
 )
 
 logger = logging.getLogger("chatstudio.ai_router")
@@ -444,7 +445,7 @@ class AIRouterService:
                 options = {}
 
         user_plan = (await session.execute(select(Plan).where(Plan.name == "free"))).scalar_one_or_none()
-        user = await session.get(__import__("app.database", fromlist=["User"]).User, ai_request.user_id)
+        user = await session.get(User, ai_request.user_id)
         if user:
             selected_plan = (await session.execute(select(Plan).where(Plan.name == (user.plan_name or "free")))).scalar_one_or_none()
             if selected_plan:
