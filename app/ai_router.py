@@ -46,6 +46,7 @@ from app.database import (
     MessageFile,
     ModelConfig,
     Provider,
+    Plan,
     RoutingSet,
     RoutingSetModel,
     TaskRoute,
@@ -441,6 +442,15 @@ class AIRouterService:
                 options = json.loads(ai_request.options_json)
             except Exception:
                 options = {}
+
+        user_plan = (await session.execute(select(Plan).where(Plan.name == "free"))).scalar_one_or_none()
+        user = await session.get(__import__("app.database", fromlist=["User"]).User, ai_request.user_id)
+        if user:
+            selected_plan = (await session.execute(select(Plan).where(Plan.name == (user.plan_name or "free")))).scalar_one_or_none()
+            if selected_plan:
+                user_plan = selected_plan
+        if user_plan:
+            options["max_tokens"] = min(int(user_plan.max_tokens), 120000)
 
         try:
             routing_set_name, models = await resolve_models_for_task(session, ai_request.task)
