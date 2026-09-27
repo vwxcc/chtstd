@@ -751,7 +751,7 @@ function normalizeMath(source){
     if(/^\s*```/.test(line)){inFence=!inFence;return line;}
     if(inFence || line.includes("$") || line.includes("\\(") || line.includes("\\[")) return line;
     const t=line.trim();
-    if(/^[-+]?\s*(?:\\\\(?:frac|dfrac|sqrt|sum|int|lim|alpha|beta|gamma|Delta|pi|sin|cos|tan|log)|[A-Za-z]_[A-Za-z0-9]+\b|[A-Za-z]\^\{?\d)/.test(t) && /\\\\|\^|_/.test(t)) return "\\\\("+t+"\\\\)";
+    if(/^[-+]?\s*(?:\\(?:frac|dfrac|sqrt|sum|int|lim|alpha|beta|gamma|Delta|pi|sin|cos|tan|log)|[A-Za-z]_[A-Za-z0-9]+\b|[A-Za-z]\^\{?\d)/.test(t) && /\\\\|\^|_/.test(t)) return "\\("+t+"\\)";
     return line;
   }).join("\n");
 }
