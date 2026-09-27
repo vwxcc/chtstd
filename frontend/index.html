@@ -642,7 +642,7 @@ function renderSidebar(list = chats) {
     });
   });
   $("chatList").innerHTML = html || `<div style="padding:12px;color:var(--text-muted);font-size:12px">Чатов пока нет</div>`;
-  $("planTagSidebar").textContent = me?.is_admin ? "Admin" : "Free";
+  $("planTagSidebar").textContent = me?.is_admin ? "Admin" : (me?.plan_display_name || "Free");
   $("planTagSidebar").className = "tag free";
 }
 
@@ -712,8 +712,8 @@ function updateHeader() {
   const chat = chats.find(c => c.id === currentChatId);
   $("modelSelectLabel").textContent = models[0]?.display_name || "Qwen 3.5 35B";
   $("usageChip").textContent = me?.is_admin ? "AI Router подключён" : "Приватный чат";
-  $("planBadge").textContent = me?.is_admin ? "Admin" : "Free";
-  $("planBadge").className = "badge " + (me?.is_admin ? "pro" : "free");
+  $("planBadge").textContent = me?.is_admin ? "Admin" : (me?.plan_display_name || "Free");
+  $("planBadge").className = "badge " + (me?.is_admin || me?.plan_name === "pro" || me?.plan_name === "max" ? "pro" : "free");
   if (chat) document.title = `${chat.title || "Chat Studio"} — Chat Studio`;
 }
 
