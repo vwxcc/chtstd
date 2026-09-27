@@ -20,7 +20,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app.ai_router import recover_interrupted_requests, router_service
 from app.config import get_settings
-from app.database import init_db
+from app.database import AsyncSessionLocal, init_db
+from app.bootstrap import bootstrap_default_routing
 from app.routers import admin_routing, auth, chats, files, messages, requests, shared
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -32,6 +33,9 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+
+    async with AsyncSessionLocal() as bootstrap_session:
+        await bootstrap_default_routing(bootstrap_session)
 
     recovered = await recover_interrupted_requests()
     if recovered:
