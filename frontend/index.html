@@ -941,7 +941,7 @@ function streamRequest(requestId){
     const finish=async function(){
       if(currentStream){currentStream.close();currentStream=null;}
       generating=false;currentRequestId=null;setSendState(false);
-      try{renderThread(await api("/api/messages?chat_id="+encodeURIComponent(currentChatId)));await refreshCurrentChat();}catch(e){}
+      try{renderThread(await api("/api/messages?chat_id="+encodeURIComponent(currentChatId)));await refreshCurrentChat();await loadModelHealth();}catch(e){}
       resolve();
     };
     ["completed","failed","cancelled","done","error"].forEach(function(type){currentStream.addEventListener(type,finish);});
