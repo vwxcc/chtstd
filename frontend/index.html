@@ -724,19 +724,34 @@ function messageHtml(message) {
   </article>`;
 }
 
-function renderMarkdownLite(text) {
-  let html = esc(text);
-  html = html.replace(/```([\w+-]*)\n([\s\S]*?)```/g, (_,lang,code) => `<div class="codeblock"><div class="cb-head"><span class="lang">${esc(lang || "code")}</span><button type="button" onclick="copyCode(this)">Копировать</button></div><pre><code>${code}</code></pre></div>`);
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  html = html.split(/\n\n+/).map(p => `<p>${p.replace(/\n/g,"<br>")}</p>`).join("");
-  return html;
+const md = window.markdownit({html:false,linkify:true,typographer:true,breaks:true});
+function normalizeMath(source){
+  return source.split(/\n{2,}/).map(function(block){
+    const t=block.trim();
+    if(t.length>35 && /\\(frac|int|sum|sqrt|dfrac|begin|left|right)/.test(t) && !t.includes("+++CODEFENCE+++")) return "$$"+t+"$$";
+    return block;
+  }).join("\n\n");
 }
-window.copyCode = async button => {
-  const code = button.closest(".codeblock").querySelector("code").textContent;
-  await navigator.clipboard.writeText(code); button.textContent = "Скопировано"; setTimeout(() => button.textContent = "Копировать", 1200);
-};
-
+function renderMarkdownLite(text){ return '<div class="md-body">'+md.render(normalizeMath(String(text||"")))+"</div>"; }
+function rerenderMath(){ if(window.MathJax&&window.MathJax.typesetPromise) MathJax.typesetPromise([$("threadInner")]).catch(function(){}); }
+function enhanceCodeBlocks(){
+  document.querySelectorAll("#threadInner pre > code").forEach(function(codeEl){
+    if(codeEl.closest(".rich-code")) return;
+    const pre=codeEl.parentElement, block=document.createElement("div"); block.className="rich-code";
+    const head=document.createElement("div"); head.className="rich-code-head";
+    const lang=document.createElement("span"); lang.className="code-lang"; lang.textContent="code"; head.appendChild(lang);
+    ["copy","download","run"].forEach(function(action){const b=document.createElement("button");b.type="button";b.dataset.codeAction=action;b.textContent=action==="copy"?"Копировать":action==="download"?"Скачать":"Исполнить";head.appendChild(b);});
+    const out=document.createElement("div"); out.className="code-output"; block.dataset.lang="python"; block.dataset.code=encodeURIComponent(codeEl.textContent);
+    pre.replaceWith(block); block.appendChild(head); block.appendChild(pre); block.appendChild(out);
+  });
+}
+async function handleCodeAction(button){
+  const block=button.closest(".rich-code"), code=decodeURIComponent(block.dataset.code||""), action=button.dataset.codeAction, output=block.querySelector(".code-output");
+  if(action==="copy"){await navigator.clipboard.writeText(code);button.textContent="Скопировано";setTimeout(function(){button.textContent="Копировать"},1200);return;}
+  if(action==="download"){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([code],{type:"text/plain;charset=utf-8"}));a.download="code.py";a.click();setTimeout(function(){URL.revokeObjectURL(a.href)},500);return;}
+  output.className="code-output show"; output.textContent="Выполнение…";
+  try{const result=await api("/api/code/execute",{method:"POST",body:JSON.stringify({language:"python",code:code})});output.className="code-output show"+(result.ok?"":" error");output.textContent=(result.stdout||"")+(result.stderr?((result.stdout?"\n":"")+result.stderr):"")||"Готово без вывода.";}catch(e){output.className="code-output show error";output.textContent=e.message;}
+}
 $("threadInner").addEventListener("click", event => {
   const fill = event.target.closest("[data-fill]");
   if (fill) { $("composerInput").value = fill.dataset.fill; autoGrow(); $("composerInput").focus(); }
@@ -1636,6 +1651,8 @@ function renderThread(messages) {
     return;
   }
   inner.innerHTML = messages.map(messageHtml).join("");
+  enhanceCodeBlocks();
+  rerenderMath();
   scrollBottom();
 }
 
