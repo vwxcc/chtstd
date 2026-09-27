@@ -187,6 +187,8 @@ async def send_message(
     content = payload.content.strip()
     plan = await _enforce_plan_limits(session, user, content, payload.file_ids, settings)
     files = await _resolve_and_validate_files(session, payload.file_ids, user.id, settings)
+    if sum(f.size_bytes for f in files) > plan.max_total_file_size:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Превышен суммарный размер файлов по вашему тарифу.")
 
     # Разрешаем отправлять только файл без текста.
     if not content and not files:
