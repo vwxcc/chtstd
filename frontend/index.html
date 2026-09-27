@@ -806,8 +806,7 @@ $("temperatureRange").oninput=function(e){generationSettings.temperature=Number(
 $("effortSelect").onchange=function(e){generationSettings.effort=e.target.value;localStorage.setItem("chatstudio_effort",generationSettings.effort);};
 $("thinkingVisibilityToggle").onclick=function(){generationSettings.showThinking=!generationSettings.showThinking;$("thinkingVisibilityToggle").classList.toggle("on",generationSettings.showThinking);localStorage.setItem("chatstudio_show_thinking",generationSettings.showThinking?"1":"0");};
 
-$("fileInput").onchange=async function(e){const files=Array.from(e.target.files||[]);e.target.value="";await uploadPendingFiles(files);};
-$("attachBtnWrap").addEventListener("click",function(e){if(e.target.tagName==="INPUT")return;});
+$("fileInput").addEventListener("change",async function(e){const files=Array.from(e.target.files||[]);e.target.value="";await uploadPendingFiles(files);});
 async function uploadPendingFiles(files){
   if(!files||!files.length)return;
   for(const file of files){
