@@ -889,6 +889,7 @@ function updateLastAssistant(content, replace=false) {
     assistant.dataset.raw = next;
     bubble.innerHTML = renderMarkdownLite(next);
   }
+  enhanceCodeBlocks();
   typesetMath();
   scrollBottom();
 }
