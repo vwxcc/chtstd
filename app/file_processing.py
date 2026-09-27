@@ -33,7 +33,12 @@ logger = logging.getLogger("chatstudio.files")
 
 ZIP_BASED_EXTENSIONS = {"docx", "xlsx", "pptx", "zip"}
 IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
-TEXT_EXTENSIONS = {"txt", "md", "csv", "json", "xml"}
+TEXT_EXTENSIONS = {
+    "txt", "md", "csv", "json", "xml", "html", "htm", "css", "js", "mjs", "cjs",
+    "ts", "tsx", "jsx", "py", "java", "c", "cpp", "h", "hpp", "cs", "go", "rs",
+    "php", "rb", "swift", "kt", "kts", "sh", "bash", "zsh", "sql", "yaml", "yml",
+    "toml", "ini", "cfg", "conf", "env", "log", "vue", "svelte", "astro",
+}
 
 
 @dataclass
@@ -87,7 +92,7 @@ def validate_magic_bytes(extension: str, data: bytes) -> None:
         if not (data[:4] == b"RIFF" and data[8:12] == b"WEBP"):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл не является WEBP-изображением.")
 
-    # txt/md/csv/json/xml — без строгой сигнатуры, но должны быть текстом
+    # Известные текстовые и исходные файлы не требуют magic bytes.
     elif ext in TEXT_EXTENSIONS:
         try:
             data[: 65536].decode("utf-8")
@@ -243,7 +248,20 @@ def extract_text(extension: str, data: bytes, settings: Settings) -> ProcessedFi
             return _extract_pptx(data, settings)
         if ext in TEXT_EXTENSIONS:
             return _extract_plain_text(data, settings)
-        # xls/ppt (legacy binary), zip, изображения — текст не извлекаем
+        # Для неизвестных расширений пытаемся определить обычный UTF-8/CP1251 текст.
+        # Бинарные файлы при этом просто сохраняются и передаются как вложение.
+        sample = data[:65536]
+        try:
+            decoded = sample.decode("utf-8")
+            if "\x00" not in decoded:
+                return ProcessedFile(extracted_text=_truncate(data.decode("utf-8"), settings))
+        except UnicodeDecodeError:
+            try:
+                decoded = sample.decode("cp1251")
+                if "\x00" not in decoded:
+                    return ProcessedFile(extracted_text=_truncate(data.decode("cp1251"), settings))
+            except UnicodeDecodeError:
+                pass
         return ProcessedFile(extracted_text=None)
     except Exception as e:  # noqa: BLE001
         # Раздел 53: не показываем traceback пользователю, но и не роняем загрузку
