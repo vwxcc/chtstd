@@ -22,7 +22,7 @@ from app.ai_router import recover_interrupted_requests, router_service
 from app.config import get_settings
 from app.database import AsyncSessionLocal, init_db
 from app.bootstrap import bootstrap_default_routing
-from app.routers import admin_routing, auth, chats, files, messages, requests, shared
+from app.routers import admin_routing, auth, chats, files, messages, requests, shared, search, code_exec
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("chatstudio")
@@ -62,6 +62,8 @@ app.include_router(files.router)
 app.include_router(requests.router)
 app.include_router(shared.router)
 app.include_router(admin_routing.router)
+app.include_router(search.router)
+app.include_router(code_exec.router)
 
 
 # --------------------------------------------------------------------------
