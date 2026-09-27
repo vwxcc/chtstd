@@ -18,7 +18,7 @@ from pathlib import Path
 import os
 
 # Persistent ENV overrides written by the administrator from the web panel.
-_RUNTIME_ENV = Path(os.getenv("CHATSTUDIO_DATA_DIR", "./data")) / "runtime.env"
+_RUNTIME_ENV = Path(os.getenv("DATA_DIR", "./data")) / "runtime.env"
 if _RUNTIME_ENV.exists():
     for _line in _RUNTIME_ENV.read_text(encoding="utf-8").splitlines():
         _line = _line.strip()
