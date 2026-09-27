@@ -175,18 +175,19 @@ async def rename_chat(
     return _to_public(chat)
 
 
-@router.delete("/{chat_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{chat_id}", status_code=status.HTTP_200_OK)
 async def delete_chat(
     chat_id: str,
     request: Request,
     settings: Settings = Depends(get_settings),
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-) -> None:
+) -> dict:
     enforce_csrf(request, settings)
     chat = await _get_owned_chat(session, chat_id, user.id)
     await session.delete(chat)  # каскад удалит messages/message_files/ai_requests/share на уровне БД
     await session.commit()
+    return {"ok": True}
 
 
 @router.post("/{chat_id}/archive", response_model=ChatPublic)
