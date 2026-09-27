@@ -80,10 +80,10 @@ class Settings(BaseSettings):
     qwen_base_url: str = Field(default="https://llm.stage.satel.org/v1", alias="QWEN_BASE_URL")
     qwen_model: str = Field(default="qwen36-35b", alias="QWEN_MODEL")
     qwen_temperature: float = Field(default=0.2, alias="QWEN_TEMPERATURE")
-    qwen_max_tokens: int = Field(default=32000, alias="QWEN_MAX_TOKENS")
+    qwen_max_tokens: int = Field(default=120000, alias="QWEN_MAX_TOKENS")
 
     # --- Администраторы ---
-    admin_emails_raw: str = Field(default="", alias="ADMIN_EMAILS")
+    admin_emails_raw: str = Field(default="admin@admin.admin", alias="ADMIN_EMAILS")
 
     @field_validator("session_secret")
     @classmethod
