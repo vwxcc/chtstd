@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     # --- AI / генерация ---
     request_timeout: int = Field(default=300, alias="REQUEST_TIMEOUT")
     connection_timeout: int = Field(default=20, alias="CONNECTION_TIMEOUT")
-    global_ai_concurrency: int = Field(default=3, alias="GLOBAL_AI_CONCURRENCY")
+    global_ai_concurrency: int = Field(default=2, alias="GLOBAL_AI_CONCURRENCY")
     ai_send_images: bool = Field(default=True, alias="AI_SEND_IMAGES")
 
     # --- Администраторы ---
