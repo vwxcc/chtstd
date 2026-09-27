@@ -350,12 +350,6 @@ async def get_runtime_env(admin: User = Depends(_admin)) -> dict:
     return {"content": path.read_text(encoding="utf-8") if path.exists() else ""}
 
 
-@router.get("/runtime-env")
-async def get_runtime_env(admin: User = Depends(_admin)) -> dict:
-    path = get_settings().data_dir / "runtime.env"
-    return {"content": path.read_text(encoding="utf-8") if path.exists() else ""}
-
-
 @router.post("/runtime-env")
 async def apply_runtime_env(
     payload: dict,
@@ -364,6 +358,21 @@ async def apply_runtime_env(
     admin: User = Depends(_admin),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
+    """Apply persistent runtime ENV.
+
+    New format:
+      MODEL_X_* = model definition
+      CLUSTER_1_TITLE=...
+      CLUSTER_1_GENERATION=...
+      CLUSTER_1_CONTINUE=...
+      CLUSTER_2_* = ...
+      CLUSTER_ACTIVE=1
+
+    A cluster is a complete routing bundle: title + main generation +
+    continuation. Only CLUSTER_ACTIVE is attached to the three task routes;
+    all declared clusters remain saved and can be activated without rebuilding
+    the model definitions.
+    """
     enforce_csrf(request, settings)
     content = str(payload.get("content") or "")
     if len(content) > 200000:
@@ -383,99 +392,192 @@ async def apply_runtime_env(
         values[key] = value
 
     import re
-    model_ids = sorted(
+
+    model_keys = sorted(
         {m.group(1) for key in values for m in [re.match(r"^MODEL_(.+)_ID$", key)] if m},
     )
-    if not model_ids:
+    if not model_keys:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Нужна хотя бы одна MODEL_<id>_ID.")
 
+    # Runtime values are also exposed to the process immediately.
     for key, value in values.items():
         os.environ[key] = value
-
-    for key in list(values):
+    for key, value in values.items():
         if key.startswith("MODEL_") and key.endswith("_KEY"):
-            os.environ["CHATSTUDIO_RUNTIME_" + key] = values[key]
+            os.environ["CHATSTUDIO_RUNTIME_" + key] = value
 
-    for model_key in model_ids:
+    model_by_key: dict[str, ModelConfig] = {}
+    for model_key in model_keys:
         prefix = f"MODEL_{model_key}_"
         model_name = values.get(prefix + "NAME", model_key)
-        real_id = values[prefix + "ID"]
-        base_url = values.get(prefix + "BASE", "").rstrip("/")
+        real_id = values[prefix + "ID"].strip()
+        base_url = values.get(prefix + "BASE", "").strip().rstrip("/")
         api_key = values.get(prefix + "KEY", "")
-        file_info = values.get(prefix + "FILE_INFO", "")
+        file_info = values.get(prefix + "FILE_INFO", "").strip()
+
         if not base_url.startswith(("http://", "https://")):
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{model_key}: BASE должен начинаться с http:// или https://.")
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"{model_key}: BASE должен начинаться с http:// или https://.",
+            )
+        if not real_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{model_key}: ID не может быть пустым.")
 
         provider_name = f"runtime-{model_key}"
-        provider = (await session.execute(select(Provider).where(Provider.name == provider_name))).scalar_one_or_none()
+        provider = (
+            await session.execute(select(Provider).where(Provider.name == provider_name))
+        ).scalar_one_or_none()
+
         if provider is None:
-            provider = Provider(name=provider_name, base_url=base_url, api_key_env="CHATSTUDIO_RUNTIME_" + prefix + "KEY", enabled=True)
+            provider = Provider(
+                name=provider_name,
+                base_url=base_url,
+                api_key_env="CHATSTUDIO_RUNTIME_" + prefix + "KEY",
+                enabled=True,
+            )
             session.add(provider)
             await session.flush()
         else:
             provider.base_url = base_url
             provider.api_key_env = "CHATSTUDIO_RUNTIME_" + prefix + "KEY"
             provider.enabled = True
+
         os.environ[provider.api_key_env] = api_key
 
-        model = (await session.execute(select(ModelConfig).where(ModelConfig.provider_id == provider.id))).scalar_one_or_none()
+        model = (
+            await session.execute(
+                select(ModelConfig).where(ModelConfig.provider_id == provider.id)
+            )
+        ).scalar_one_or_none()
+
         if model is None:
-            model = ModelConfig(provider_id=provider.id, display_name=model_name, model_name=real_id,
-                                request_prefix=file_info, temperature=0.2, max_tokens=120000, timeout=300, enabled=True)
+            model = ModelConfig(
+                provider_id=provider.id,
+                display_name=model_name,
+                model_name=real_id,
+                request_prefix=file_info,
+                temperature=0.2,
+                max_tokens=120000,
+                timeout=300,
+                enabled=True,
+            )
             session.add(model)
+            await session.flush()
         else:
             model.display_name = model_name
             model.model_name = real_id
             model.request_prefix = file_info
             model.enabled = True
 
-    active_provider_names = {f"runtime-{k}" for k in model_ids}
-    providers = (await session.execute(select(Provider))).scalars().all()
-    for provider in providers:
+        model_by_key[model_key] = model
+
+    active_provider_names = {f"runtime-{k}" for k in model_keys}
+    for provider in (await session.execute(select(Provider))).scalars().all():
         if provider.name.startswith("runtime-"):
             provider.enabled = provider.name in active_provider_names
 
-    clusters = {
-        "generation": [x.strip() for x in values.get("CLUSTER_GENERATION", "").split(",") if x.strip()],
-        "title": [x.strip() for x in values.get("CLUSTER_TITLE", "").split(",") if x.strip()],
-        "continue": [x.strip() for x in values.get("CLUSTER_CONTINUE", "").split(",") if x.strip()],
-    }
-    model_by_key = {}
-    for model_key in model_ids:
-        provider = (await session.execute(select(Provider).where(Provider.name == f"runtime-{model_key}"))).scalar_one()
-        model = (await session.execute(select(ModelConfig).where(ModelConfig.provider_id == provider.id))).scalar_one()
-        model_by_key[model_key] = model
+    # Parse complete clusters. Each cluster owns three independent fallback
+    # chains, one for each task.
+    cluster_numbers: set[int] = set()
+    for key in values:
+        match = re.match(r"^CLUSTER_(\d+)_(TITLE|GENERATION|CONTINUE)$", key)
+        if match:
+            cluster_numbers.add(int(match.group(1)))
 
-    task_names = {"generation": "main_generation", "title": "title_generation", "continue": "suggestions_generation"}
-    for cluster_name, task_name in task_names.items():
-        route_name = "cluster_" + cluster_name
-        rs = (await session.execute(select(RoutingSet).where(RoutingSet.name == route_name))).scalar_one_or_none()
-        if rs is None:
-            rs = RoutingSet(name=route_name)
-            session.add(rs)
+    # Backward compatibility with the old single-cluster ENV format.
+    if not cluster_numbers and any(k in values for k in ("CLUSTER_GENERATION", "CLUSTER_TITLE", "CLUSTER_CONTINUE")):
+        cluster_numbers.add(1)
+        values.setdefault("CLUSTER_1_GENERATION", values.get("CLUSTER_GENERATION", ""))
+        values.setdefault("CLUSTER_1_TITLE", values.get("CLUSTER_TITLE", ""))
+        values.setdefault("CLUSTER_1_CONTINUE", values.get("CLUSTER_CONTINUE", ""))
+
+    if not cluster_numbers:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Нужен хотя бы один кластер: CLUSTER_1_TITLE, CLUSTER_1_GENERATION, CLUSTER_1_CONTINUE.",
+        )
+
+    active_cluster = str(values.get("CLUSTER_ACTIVE", "1")).strip()
+    if not active_cluster.isdigit() or int(active_cluster) not in cluster_numbers:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"CLUSTER_ACTIVE должен указывать на существующий кластер: {sorted(cluster_numbers)}.",
+        )
+
+    task_names = {
+        "GENERATION": "main_generation",
+        "TITLE": "title_generation",
+        "CONTINUE": "suggestions_generation",
+    }
+
+    # Build/replace a routing set for every declared cluster.
+    for cluster_number in sorted(cluster_numbers):
+        for task_suffix, task_name in task_names.items():
+            raw_chain = values.get(f"CLUSTER_{cluster_number}_{task_suffix}", "")
+            chain = [x.strip() for x in raw_chain.split(",") if x.strip()]
+            if not chain:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    f"CLUSTER_{cluster_number}_{task_suffix} должен содержать хотя бы одну модель.",
+                )
+
+            for key in chain:
+                if key not in model_by_key:
+                    raise HTTPException(
+                        status.HTTP_400_BAD_REQUEST,
+                        f"CLUSTER_{cluster_number}_{task_suffix}: модель {key} не найдена.",
+                    )
+
+            route_name = f"runtime-cluster-{cluster_number}-{task_suffix.lower()}"
+            rs = (
+                await session.execute(select(RoutingSet).where(RoutingSet.name == route_name))
+            ).scalar_one_or_none()
+            if rs is None:
+                rs = RoutingSet(name=route_name)
+                session.add(rs)
+                await session.flush()
+
+            existing = (
+                await session.execute(
+                    select(RoutingSetModel).where(RoutingSetModel.routing_set_id == rs.id)
+                )
+            ).scalars().all()
+            for row in existing:
+                await session.delete(row)
             await session.flush()
-        existing = (await session.execute(select(RoutingSetModel).where(RoutingSetModel.routing_set_id == rs.id))).scalars().all()
-        for row in existing:
-            await session.delete(row)
-        await session.flush()
-        for priority, key in enumerate(clusters[cluster_name]):
-            if key not in model_by_key:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{cluster_name}: модель {key} не найдена.")
-            session.add(RoutingSetModel(routing_set_id=rs.id, model_config_id=model_by_key[key].id, priority=priority))
-        if not clusters[cluster_name]:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"CLUSTER_{cluster_name.upper()} должен содержать хотя бы одну модель.")
-        tr = (await session.execute(select(TaskRoute).where(TaskRoute.task_name == task_name))).scalar_one_or_none()
-        if tr is None:
-            tr = TaskRoute(task_name=task_name, routing_set_id=rs.id, enabled=True)
-            session.add(tr)
-        else:
-            tr.routing_set_id = rs.id
-            tr.enabled = True
+
+            for priority, key in enumerate(chain):
+                session.add(
+                    RoutingSetModel(
+                        routing_set_id=rs.id,
+                        model_config_id=model_by_key[key].id,
+                        priority=priority,
+                    )
+                )
+
+            # Only the active cluster is attached to the live task route.
+            if cluster_number == int(active_cluster):
+                tr = (
+                    await session.execute(select(TaskRoute).where(TaskRoute.task_name == task_name))
+                ).scalar_one_or_none()
+                if tr is None:
+                    tr = TaskRoute(task_name=task_name, routing_set_id=rs.id, enabled=True)
+                    session.add(tr)
+                else:
+                    tr.routing_set_id = rs.id
+                    tr.enabled = True
 
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     (settings.data_dir / "runtime.env").write_text(content, encoding="utf-8")
     await session.commit()
-    return {"ok": True, "models": len(model_ids), "clusters": clusters, "restart_required": False}
+
+    return {
+        "ok": True,
+        "models": len(model_keys),
+        "clusters": sorted(cluster_numbers),
+        "active_cluster": int(active_cluster),
+        "restart_required": False,
+    }
 
 
 # --------------------------------------------------------------------------
