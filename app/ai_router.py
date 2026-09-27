@@ -129,6 +129,24 @@ async def _file_content_part(file: FileRecord, settings: Settings) -> Optional[d
     return {"type": "text", "text": f"[Файл «{file.original_name}»]\n{text}"}
 
 
+async def _web_search(query: str, settings: Settings) -> str:
+    if not settings.search_enabled or not settings.search_url:
+        return ""
+    try:
+        async with httpx.AsyncClient(timeout=settings.search_timeout) as client:
+            response = await client.get(settings.search_url, params={"q": query[:500], "format": "json", "language": "all"})
+            response.raise_for_status()
+            data = response.json()
+        rows = []
+        for item in (data.get("results") or [])[:8]:
+            title, url, content = str(item.get("title") or ""), str(item.get("url") or ""), str(item.get("content") or "")
+            if title and url:
+                rows.append(f"- {title}\n  URL: {url}\n  {content[:500]}")
+        return "\n".join(rows)
+    except Exception as exc:
+        logger.warning("Web search unavailable: %s", exc)
+        return ""
+
 async def build_messages(
     session: AsyncSession,
     *,
@@ -171,6 +189,16 @@ async def build_messages(
     if append_continue_prompt:
         payload.append({"role": "user", "content": CONTINUE_PROMPT})
 
+    latest_user = next((m for m in reversed(history) if m.role == "user" and m.content), None)
+    if latest_user:
+        q = latest_user.content.strip()
+        trigger_words = ("найди", "поищи", "поиск", "актуаль", "сегодня", "сейчас", "последн", "новости", "источник", "сайт", "url", "https://", "http://")
+        if any(word in q.lower() for word in trigger_words):
+            results = await _web_search(q, settings)
+            if results:
+                payload.append({"role": "system", "content": "Результаты веб-поиска. Используй их как свежие источники и указывай URL:
+" + results})
+
     return payload
 
 
@@ -185,23 +213,20 @@ async def _call_provider_stream(
     messages: list[dict],
     *,
     connection_timeout: float,
-) -> AsyncIterator[str]:
+    options: dict | None = None,
+) -> AsyncIterator[tuple[str, str]]:
     api_key = os.getenv(provider.api_key_env, "")
     url = provider.base_url.rstrip("/") + "/chat/completions"
-
-    body = {
-        "model": model.model_name,
-        "messages": messages,
-        "temperature": model.temperature,
-        "max_tokens": model.max_tokens,
-        "stream": True,
-    }
+    options = options or {}
+    body = {"model": model.model_name, "messages": messages,
+            "temperature": float(options.get("temperature", model.temperature)),
+            "max_tokens": model.max_tokens, "stream": True}
+    if options.get("effort"):
+        body["reasoning_effort"] = options["effort"]
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
-
     timeout = httpx.Timeout(connect=connection_timeout, read=model.timeout, write=connection_timeout, pool=connection_timeout)
-
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream("POST", url, json=body, headers=headers) as response:
@@ -211,7 +236,6 @@ async def _call_provider_stream(
                     raise ProviderError("busy", f"HTTP {response.status_code} от {provider.name}")
                 if response.status_code >= 400:
                     raise ProviderError("http_error", f"HTTP {response.status_code} от {provider.name}")
-
                 async for line in response.aiter_lines():
                     if not line or not line.startswith("data:"):
                         continue
@@ -220,11 +244,15 @@ async def _call_provider_stream(
                         return
                     try:
                         chunk = json.loads(data)
-                        delta = chunk["choices"][0]["delta"].get("content")
-                    except (json.JSONDecodeError, KeyError, IndexError):
+                        delta_obj = chunk["choices"][0].get("delta", {})
+                    except (json.JSONDecodeError, KeyError, IndexError, TypeError):
                         continue
+                    reasoning = delta_obj.get("reasoning_content") or delta_obj.get("reasoning") or delta_obj.get("thinking") or ""
+                    if reasoning:
+                        yield "thinking", reasoning
+                    delta = delta_obj.get("content")
                     if delta:
-                        yield delta
+                        yield "delta", delta
     except httpx.ConnectTimeout as e:
         raise ProviderError("timeout", str(e))
     except httpx.ReadTimeout as e:
@@ -242,7 +270,7 @@ async def _call_provider_stream(
 
 @dataclass
 class StreamEvent:
-    kind: str  # "delta" | "done" | "error" | "cancelled"
+    kind: str  # "delta" | "thinking" | "replace" | "done" | "error" | "cancelled"
     text: str = ""
 
 
@@ -338,6 +366,8 @@ class AIRouterService:
         models: list[tuple[Provider, ModelConfig]],
         messages: list[dict],
         on_delta,
+        on_thinking=None,
+        options: dict | None = None,
     ) -> tuple[bool, str, Optional[Provider], Optional[ModelConfig], list[dict]]:
         """Общий цикл перебора моделей с fallback (раздел 30).
         on_delta(text) вызывается на каждый кусок потока, если он не None."""
@@ -352,14 +382,18 @@ class AIRouterService:
                     accumulated = ""
                     if on_delta:
                         on_delta("__CHATSTUDIO_RESET__")
-                async for delta in _call_provider_stream(
-                    provider, model, messages, connection_timeout=self._settings.connection_timeout
+                async for kind, piece in _call_provider_stream(
+                    provider, model, messages, connection_timeout=self._settings.connection_timeout, options=options
                 ):
                     if await self._is_cancelled(session, ai_request.id):
                         raise Cancelled()
-                    accumulated += delta
-                    if on_delta:
-                        on_delta(delta)
+                    if kind == "thinking":
+                        if on_thinking:
+                            on_thinking(piece)
+                    else:
+                        accumulated += piece
+                        if on_delta:
+                            on_delta(piece)
                 return True, accumulated, provider, model, attempts
 
             except Cancelled:
@@ -402,6 +436,13 @@ class AIRouterService:
             ai_request.message_id = assistant_message.id
             await session.commit()
 
+        options = {}
+        if ai_request.options_json:
+            try:
+                options = json.loads(ai_request.options_json)
+            except Exception:
+                options = {}
+
         try:
             routing_set_name, models = await resolve_models_for_task(session, ai_request.task)
         except Exception:
@@ -423,6 +464,9 @@ class AIRouterService:
             append_continue_prompt=is_continuation,
         )
 
+        def on_thinking(piece: str) -> None:
+            self._publish(ai_request.id, StreamEvent("thinking", piece))
+
         def on_delta(delta: str) -> None:
             if delta == "__CHATSTUDIO_RESET__":
                 assistant_message.content = ""
@@ -433,7 +477,7 @@ class AIRouterService:
 
         try:
             success, _text, provider, model, attempts = await self._run_with_fallback(
-                session, ai_request, models, messages, on_delta
+                session, ai_request, models, messages, on_delta, on_thinking, options
             )
         except Cancelled:
             ai_request.status = "cancelled"
