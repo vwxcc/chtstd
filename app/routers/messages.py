@@ -13,14 +13,14 @@ from __future__ import annotations
 import datetime as dt
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.auth import enforce_csrf, get_current_user
 from app.config import Settings, get_settings
-from app.database import Chat, FileRecord, Message, MessageFile, User, get_session
+from app.database import AIRequest, Chat, FileRecord, Message, MessageFile, Plan, User, get_session
 from app.generation import create_ai_request, enqueue_generation
 from app.schemas import (
     AIRequestPublic,
@@ -53,6 +53,36 @@ async def _get_owned_message(session: AsyncSession, message_id: str, user_id: st
     if not message:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Сообщение не найдено.")
     return message
+
+
+async def _get_user_plan(session: AsyncSession, user: User) -> Plan:
+    plan = (await session.execute(select(Plan).where(Plan.name == (user.plan_name or "free")))).scalar_one_or_none()
+    if plan is None:
+        plan = (await session.execute(select(Plan).where(Plan.name == "free"))).scalar_one_or_none()
+    if plan is None:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Тарифы ещё не инициализированы.")
+    return plan
+
+
+async def _enforce_plan_limits(session: AsyncSession, user: User, content: str, file_ids: list[str], settings: Settings) -> Plan:
+    plan = await _get_user_plan(session, user)
+    if not plan.enabled:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Ваш тариф отключён администратором.")
+    if len(content) > min(settings.max_prompt_length, plan.max_prompt_length):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Сообщение длиннее лимита тарифа: {plan.max_prompt_length} символов.")
+    if len(file_ids) > min(settings.max_files_per_request, plan.max_files_per_request):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Тариф разрешает не более {plan.max_files_per_request} файлов.")
+    since = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=1)
+    used = await session.execute(
+        select(func.count(AIRequest.id)).where(
+            AIRequest.user_id == user.id,
+            AIRequest.task == "main_generation",
+            AIRequest.created_at >= since,
+        )
+    )
+    if plan.requests_per_day and int(used.scalar() or 0) >= plan.requests_per_day:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, f"Достигнут лимит тарифа: {plan.requests_per_day} запросов за 24 часа.")
+    return plan
 
 
 async def _resolve_and_validate_files(
@@ -155,6 +185,7 @@ async def send_message(
     chat = await _get_owned_chat(session, chat_id, user.id)
 
     content = payload.content.strip()
+    plan = await _enforce_plan_limits(session, user, content, payload.file_ids, settings)
     files = await _resolve_and_validate_files(session, payload.file_ids, user.id, settings)
 
     # Разрешаем отправлять только файл без текста.
