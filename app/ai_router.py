@@ -247,9 +247,8 @@ async def _call_provider_stream(
                         delta_obj = chunk["choices"][0].get("delta", {})
                     except (json.JSONDecodeError, KeyError, IndexError, TypeError):
                         continue
-                    reasoning = delta_obj.get("reasoning_content") or delta_obj.get("reasoning") or delta_obj.get("thinking") or ""
-                    if reasoning:
-                        yield "thinking", reasoning
+                    # Сырые reasoning tokens/chain-of-thought не выводим в UI.
+                    # Интерфейс показывает отдельную анимацию статуса размышления.
                     delta = delta_obj.get("content")
                     if delta:
                         yield "delta", delta
