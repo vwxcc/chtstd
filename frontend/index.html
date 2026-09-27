@@ -520,7 +520,6 @@ let generating = false;
 let authRegister = false;
 let models = [];
 let taskRoutes = [];
-let md = null;
 
 async function api(path, options = {}) {
   options.credentials = "same-origin";
@@ -744,7 +743,6 @@ function messageHtml(message) {
   </article>`;
 }
 
-md = window.markdownit ? window.markdownit({html:false,linkify:true,typographer:true,breaks:true}) : {render: value => esc(value).replace(/\n/g,"<br>")};
 function normalizeMath(source){
   return source.split(/\n{2,}/).map(function(block){
     const t=block.trim();
@@ -752,7 +750,7 @@ function normalizeMath(source){
     return block;
   }).join("\n\n");
 }
-function renderMarkdownLite(text){ return '<div class="md-body">'+md.render(normalizeMath(String(text||"")))+"</div>"; }
+function renderMarkdownLite(text){ const renderer=window.markdownit?window.markdownit({html:false,linkify:true,typographer:true,breaks:true}):null; const source=normalizeMath(String(text||"")); return '<div class="md-body">'+(renderer?renderer.render(source):esc(source).replace(/\n/g,"<br>"))+'</div>'; }
 function rerenderMath(){ if(window.MathJax&&window.MathJax.typesetPromise) MathJax.typesetPromise([$("threadInner")]).catch(function(){}); }
 function enhanceCodeBlocks(){
   document.querySelectorAll("#threadInner pre > code").forEach(function(codeEl){
