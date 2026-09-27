@@ -4,12 +4,37 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import hash_password
+
 from app.config import get_settings
-from app.database import ModelConfig, Provider, RoutingSet, RoutingSetModel, TaskRoute
+from app.database import ModelConfig, Plan, Provider, RoutingSet, RoutingSetModel, TaskRoute, User
 
 
 async def bootstrap_default_routing(session: AsyncSession) -> None:
     settings = get_settings()
+
+    defaults = [
+        ("free", "Free", 20, 120000, 30000, 10, 50 * 1024 * 1024),
+        ("plus", "Plus", 100, 120000, 60000, 20, 100 * 1024 * 1024),
+        ("pro", "Pro", 500, 120000, 100000, 30, 200 * 1024 * 1024),
+        ("max", "Max", 2000, 120000, 200000, 50, 500 * 1024 * 1024),
+    ]
+    for name, display_name, req_day, max_tokens, max_prompt, max_files, total_size in defaults:
+        plan = (await session.execute(select(Plan).where(Plan.name == name))).scalar_one_or_none()
+        if plan is None:
+            session.add(Plan(name=name, display_name=display_name, requests_per_day=req_day, max_tokens=max_tokens,
+                             max_prompt_length=max_prompt, max_files_per_request=max_files,
+                             max_total_file_size=total_size, enabled=True))
+        else:
+            plan.display_name = display_name
+
+    admin = (await session.execute(select(User).where(User.email == "admin@admin.admin"))).scalar_one_or_none()
+    if admin is None:
+        salt, digest = hash_password("adminadmin")
+        session.add(User(name="Administrator", email="admin@admin.admin", password_hash=digest,
+                         password_salt=salt, plan_name="max"))
+    elif admin.plan_name != "max":
+        admin.plan_name = "max"
 
     provider = (
         await session.execute(select(Provider).where(Provider.name == "Qwen"))
