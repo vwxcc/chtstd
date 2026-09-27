@@ -13,7 +13,6 @@ from app.auth import (
     client_ip,
     clear_session_cookie,
     enforce_csrf,
-    enforce_login_rate_limit,
     enforce_register_rate_limit,
     get_current_user,
     hash_password,
@@ -105,8 +104,6 @@ async def login(
     session: AsyncSession = Depends(get_session),
 ) -> UserPublic:
     enforce_csrf(request, settings)
-    enforce_login_rate_limit(request, settings)
-
     email = normalize_email(payload.email)
     result = await session.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
