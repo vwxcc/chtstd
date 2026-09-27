@@ -350,19 +350,26 @@ async def get_runtime_env(admin: User = Depends(_admin)) -> dict:
     return {"content": path.read_text(encoding="utf-8") if path.exists() else ""}
 
 
+@router.get("/runtime-env")
+async def get_runtime_env(admin: User = Depends(_admin)) -> dict:
+    path = get_settings().data_dir / "runtime.env"
+    return {"content": path.read_text(encoding="utf-8") if path.exists() else ""}
+
+
 @router.post("/runtime-env")
 async def apply_runtime_env(
     payload: dict,
     request: Request,
     settings: Settings = Depends(get_settings),
     admin: User = Depends(_admin),
+    session: AsyncSession = Depends(get_session),
 ) -> dict:
     enforce_csrf(request, settings)
     content = str(payload.get("content") or "")
     if len(content) > 200000:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Конфигурация слишком большая.")
 
-    values = {}
+    values: dict[str, str] = {}
     for raw in content.splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
@@ -370,19 +377,105 @@ async def apply_runtime_env(
         if "=" not in line:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Неверная строка ENV: {line[:80]}")
         key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
+        key, value = key.strip(), value.strip().strip('"').strip("'")
         if not Settings.validate_env_var_name(key):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Недопустимое имя переменной: {key}")
         values[key] = value
 
-    path = settings.data_dir
-    path.mkdir(parents=True, exist_ok=True)
-    (path / "runtime.env").write_text(content, encoding="utf-8")
+    import re
+    model_ids = sorted(
+        {m.group(1) for key in values for m in [re.match(r"^MODEL_(.+)_ID$", key)] if m},
+    )
+    if not model_ids:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Нужна хотя бы одна MODEL_<id>_ID.")
+
     for key, value in values.items():
         os.environ[key] = value
 
-    return {"ok": True, "count": len(values), "restart_required": False}
+    for key in list(values):
+        if key.startswith("MODEL_") and key.endswith("_KEY"):
+            os.environ["CHATSTUDIO_RUNTIME_" + key] = values[key]
+
+    for model_key in model_ids:
+        prefix = f"MODEL_{model_key}_"
+        model_name = values.get(prefix + "NAME", model_key)
+        real_id = values[prefix + "ID"]
+        base_url = values.get(prefix + "BASE", "").rstrip("/")
+        api_key = values.get(prefix + "KEY", "")
+        file_info = values.get(prefix + "FILE_INFO", "")
+        if not base_url.startswith(("http://", "https://")):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{model_key}: BASE должен начинаться с http:// или https://.")
+
+        provider_name = f"runtime-{model_key}"
+        provider = (await session.execute(select(Provider).where(Provider.name == provider_name))).scalar_one_or_none()
+        if provider is None:
+            provider = Provider(name=provider_name, base_url=base_url, api_key_env="CHATSTUDIO_RUNTIME_" + prefix + "KEY", enabled=True)
+            session.add(provider)
+            await session.flush()
+        else:
+            provider.base_url = base_url
+            provider.api_key_env = "CHATSTUDIO_RUNTIME_" + prefix + "KEY"
+            provider.enabled = True
+        os.environ[provider.api_key_env] = api_key
+
+        model = (await session.execute(select(ModelConfig).where(ModelConfig.provider_id == provider.id))).scalar_one_or_none()
+        if model is None:
+            model = ModelConfig(provider_id=provider.id, display_name=model_name, model_name=real_id,
+                                request_prefix=file_info, temperature=0.2, max_tokens=120000, timeout=300, enabled=True)
+            session.add(model)
+        else:
+            model.display_name = model_name
+            model.model_name = real_id
+            model.request_prefix = file_info
+            model.enabled = True
+
+    active_provider_names = {f"runtime-{k}" for k in model_ids}
+    providers = (await session.execute(select(Provider))).scalars().all()
+    for provider in providers:
+        if provider.name.startswith("runtime-"):
+            provider.enabled = provider.name in active_provider_names
+
+    clusters = {
+        "generation": [x.strip() for x in values.get("CLUSTER_GENERATION", "").split(",") if x.strip()],
+        "title": [x.strip() for x in values.get("CLUSTER_TITLE", "").split(",") if x.strip()],
+        "continue": [x.strip() for x in values.get("CLUSTER_CONTINUE", "").split(",") if x.strip()],
+    }
+    model_by_key = {}
+    for model_key in model_ids:
+        provider = (await session.execute(select(Provider).where(Provider.name == f"runtime-{model_key}"))).scalar_one()
+        model = (await session.execute(select(ModelConfig).where(ModelConfig.provider_id == provider.id))).scalar_one()
+        model_by_key[model_key] = model
+
+    task_names = {"generation": "main_generation", "title": "title_generation", "continue": "suggestions_generation"}
+    for cluster_name, task_name in task_names.items():
+        route_name = "cluster_" + cluster_name
+        rs = (await session.execute(select(RoutingSet).where(RoutingSet.name == route_name))).scalar_one_or_none()
+        if rs is None:
+            rs = RoutingSet(name=route_name)
+            session.add(rs)
+            await session.flush()
+        existing = (await session.execute(select(RoutingSetModel).where(RoutingSetModel.routing_set_id == rs.id))).scalars().all()
+        for row in existing:
+            await session.delete(row)
+        await session.flush()
+        for priority, key in enumerate(clusters[cluster_name]):
+            if key not in model_by_key:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{cluster_name}: модель {key} не найдена.")
+            session.add(RoutingSetModel(routing_set_id=rs.id, model_config_id=model_by_key[key].id, priority=priority))
+        if not clusters[cluster_name]:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"CLUSTER_{cluster_name.upper()} должен содержать хотя бы одну модель.")
+        tr = (await session.execute(select(TaskRoute).where(TaskRoute.task_name == task_name))).scalar_one_or_none()
+        if tr is None:
+            tr = TaskRoute(task_name=task_name, routing_set_id=rs.id, enabled=True)
+            session.add(tr)
+        else:
+            tr.routing_set_id = rs.id
+            tr.enabled = True
+
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    (settings.data_dir / "runtime.env").write_text(content, encoding="utf-8")
+    await session.commit()
+    return {"ok": True, "models": len(model_ids), "clusters": clusters, "restart_required": False}
 
 
 # --------------------------------------------------------------------------
