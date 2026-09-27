@@ -118,6 +118,7 @@ class MessagePublic(BaseModel):
 class SendMessageRequest(BaseModel):
     content: str
     file_ids: list[str] = Field(default_factory=list)
+    model_id: Optional[str] = None
     temperature: Optional[float] = Field(default=None, ge=0, le=2)
     effort: Optional[str] = Field(default=None, pattern="^(low|medium|high|max)$")
     top_p: Optional[float] = Field(default=None, ge=0.05, le=1)
