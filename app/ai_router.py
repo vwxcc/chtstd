@@ -677,13 +677,23 @@ class AIRouterService:
             await session.flush()
             await self.submit(title_request.id)
 
-        suggestions_request = AIRequest(
-            user_id=ai_request.user_id, chat_id=chat.id, message_id=ai_request.message_id,
-            task="suggestions_generation", status="queued",
+        # Продолжение/подсказки запускаются после каждого третьего основного ответа.
+        main_count_result = await session.execute(
+            select(AIRequest.id).where(
+                AIRequest.chat_id == chat.id,
+                AIRequest.task == "main_generation",
+                AIRequest.status == "completed",
+            )
         )
-        session.add(suggestions_request)
-        await session.flush()
-        await self.submit(suggestions_request.id)
+        main_count = len(main_count_result.scalars().all())
+        if main_count % 3 == 0:
+            suggestions_request = AIRequest(
+                user_id=ai_request.user_id, chat_id=chat.id, message_id=ai_request.message_id,
+                task="suggestions_generation", status="queued",
+            )
+            session.add(suggestions_request)
+            await session.flush()
+            await self.submit(suggestions_request.id)
         await session.commit()
 
 
