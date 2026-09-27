@@ -479,7 +479,6 @@ table.limits tr:last-child td{ border-bottom:none; }
     <div class="modal-head"><h2>Параметры ответа</h2><button class="icon-btn" id="closeGenerationSettings" type="button">×</button></div>
     <div class="modal-body">
       <div class="field-row"><div><div class="lbl">Температура</div><div class="sub">Вариативность ответа</div></div><div style="display:flex;align-items:center;gap:8px"><input id="temperatureRange" type="range" min="0" max="2" step="0.05" value="0.2"><b id="temperatureValue">0.20</b></div></div>
-      <div class="field-row"><div><div class="lbl">Effort</div><div class="sub">Глубина рассуждения</div></div><select id="effortSelect" class="plain"><option value="low">Low</option><option value="medium" selected>Medium</option><option value="high">High</option><option value="max">Max</option></select></div>
       <div class="field-row"><div><div class="lbl">Top P</div><div class="sub">Разнообразие выборки</div></div><div style="display:flex;align-items:center;gap:8px"><input id="topPRange" type="range" min="0.05" max="1" step="0.05" value="1"><b id="topPValue">1.00</b></div></div>
             </div>
   </div>
@@ -804,13 +803,11 @@ $("sendBtn").onclick = () => sendMessage();
 
 let generationSettings={
   temperature:Number(localStorage.getItem("chatstudio_temperature")||"0.2"),
-  effort:localStorage.getItem("chatstudio_effort")||"medium",
   topP:Number(localStorage.getItem("chatstudio_top_p")||"1"),
 };
 function openGenerationSettings(){
   $("temperatureRange").value=generationSettings.temperature;
   $("temperatureValue").textContent=Number(generationSettings.temperature).toFixed(2);
-  $("effortSelect").value=generationSettings.effort;
   $("topPRange").value=generationSettings.topP;
   $("topPValue").textContent=generationSettings.topP.toFixed(2);
   $("generationSettingsOverlay").classList.add("open");
@@ -820,7 +817,6 @@ $("composerSettingsBtn").onclick=openGenerationSettings;
 $("closeGenerationSettings").onclick=closeGenerationSettings;
 $("generationSettingsOverlay").addEventListener("click",function(e){if(e.target===$("generationSettingsOverlay"))closeGenerationSettings();});
 $("temperatureRange").oninput=function(e){generationSettings.temperature=Number(e.target.value);$("temperatureValue").textContent=generationSettings.temperature.toFixed(2);localStorage.setItem("chatstudio_temperature",generationSettings.temperature);};
-$("effortSelect").onchange=function(e){generationSettings.effort=e.target.value;localStorage.setItem("chatstudio_effort",generationSettings.effort);};
 $("topPRange").oninput=function(e){generationSettings.topP=Number(e.target.value);$("topPValue").textContent=generationSettings.topP.toFixed(2);localStorage.setItem("chatstudio_top_p",generationSettings.topP);};
 
 $("fileInput").addEventListener("change",async function(e){const files=Array.from(e.target.files||[]);e.target.value="";await uploadPendingFiles(files);});
@@ -862,7 +858,6 @@ async function sendMessage() {
         content,
         file_ids:pendingFiles.map(file => file.id),
         temperature:generationSettings.temperature,
-        effort:generationSettings.effort,
         top_p:generationSettings.topP
       })
     });
