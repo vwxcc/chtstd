@@ -152,12 +152,13 @@ async def send_message(
     chat = await _get_owned_chat(session, chat_id, user.id)
 
     content = payload.content.strip()
-    if not content:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Сообщение не может быть пустым.")
+    files = await _resolve_and_validate_files(session, payload.file_ids, user.id, settings)
+
+    # Разрешаем отправлять только файл без текста.
+    if not content and not files:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Добавьте текст или хотя бы один файл.")
     if len(content) > settings.max_prompt_length:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Сообщение длиннее {settings.max_prompt_length} символов.")
-
-    files = await _resolve_and_validate_files(session, payload.file_ids, user.id, settings)
 
     message = Message(chat_id=chat.id, user_id=user.id, role="user", content=content)
     session.add(message)
