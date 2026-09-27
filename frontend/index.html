@@ -520,6 +520,7 @@ let generating = false;
 let authRegister = false;
 let models = [];
 let taskRoutes = [];
+let md = null;
 
 async function api(path, options = {}) {
   options.credentials = "same-origin";
@@ -743,7 +744,7 @@ function messageHtml(message) {
   </article>`;
 }
 
-const md = window.markdownit({html:false,linkify:true,typographer:true,breaks:true});
+md = window.markdownit ? window.markdownit({html:false,linkify:true,typographer:true,breaks:true}) : {render: value => esc(value).replace(/\n/g,"<br>")};
 function normalizeMath(source){
   return source.split(/\n{2,}/).map(function(block){
     const t=block.trim();
