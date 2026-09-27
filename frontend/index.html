@@ -753,6 +753,8 @@ async function handleCodeAction(button){
   try{const result=await api("/api/code/execute",{method:"POST",body:JSON.stringify({language:"python",code:code})});output.className="code-output show"+(result.ok?"":" error");output.textContent=(result.stdout||"")+(result.stderr?((result.stdout?"\n":"")+result.stderr):"")||"Готово без вывода.";}catch(e){output.className="code-output show error";output.textContent=e.message;}
 }
 $("threadInner").addEventListener("click", event => {
+  const codeAction=event.target.closest("[data-code-action]");
+  if(codeAction){handleCodeAction(codeAction);return;}
   const fill = event.target.closest("[data-fill]");
   if (fill) { $("composerInput").value = fill.dataset.fill; autoGrow(); $("composerInput").focus(); }
 });
@@ -769,23 +771,25 @@ $("composerInput").addEventListener("keydown", event => { if (event.key === "Ent
 
 $("sendBtn").onclick = () => sendMessage();
 
-$("webSearchToggle").onclick = () => {
-  webSearchEnabled = !webSearchEnabled;
-  $("webSearchToggle").classList.toggle("on", webSearchEnabled);
-  $("webSearchToggle").title = webSearchEnabled
-    ? "Режим поиска включён"
-    : "Поиск выключен";
-  toast(webSearchEnabled ? "Режим поиска включён" : "Режим поиска выключен");
+let generationSettings={
+  temperature:Number(localStorage.getItem("chatstudio_temperature")||"0.2"),
+  effort:localStorage.getItem("chatstudio_effort")||"medium",
+  showThinking:localStorage.getItem("chatstudio_show_thinking")!=="0"
 };
-
-$("codeExecToggle").onclick = () => {
-  codeModeEnabled = !codeModeEnabled;
-  $("codeExecToggle").classList.toggle("on", codeModeEnabled);
-  $("codeExecToggle").title = codeModeEnabled
-    ? "Режим кода включён"
-    : "Режим кода выключен";
-  toast(codeModeEnabled ? "Режим кода включён" : "Режим кода выключен");
-};
+function openGenerationSettings(){
+  $("temperatureRange").value=generationSettings.temperature;
+  $("temperatureValue").textContent=Number(generationSettings.temperature).toFixed(2);
+  $("effortSelect").value=generationSettings.effort;
+  $("thinkingVisibilityToggle").classList.toggle("on",generationSettings.showThinking);
+  $("generationSettingsOverlay").classList.add("open");
+}
+function closeGenerationSettings(){$("generationSettingsOverlay").classList.remove("open");}
+$("composerSettingsBtn").onclick=openGenerationSettings;
+$("closeGenerationSettings").onclick=closeGenerationSettings;
+$("generationSettingsOverlay").addEventListener("click",function(e){if(e.target===$("generationSettingsOverlay"))closeGenerationSettings();});
+$("temperatureRange").oninput=function(e){generationSettings.temperature=Number(e.target.value);$("temperatureValue").textContent=generationSettings.temperature.toFixed(2);localStorage.setItem("chatstudio_temperature",generationSettings.temperature);};
+$("effortSelect").onchange=function(e){generationSettings.effort=e.target.value;localStorage.setItem("chatstudio_effort",generationSettings.effort);};
+$("thinkingVisibilityToggle").onclick=function(){generationSettings.showThinking=!generationSettings.showThinking;$("thinkingVisibilityToggle").classList.toggle("on",generationSettings.showThinking);localStorage.setItem("chatstudio_show_thinking",generationSettings.showThinking?"1":"0");};
 
 async function uploadPendingFiles(fileList) {
   const files = [...fileList];
@@ -794,6 +798,7 @@ async function uploadPendingFiles(fileList) {
     const form = new FormData();
     files.forEach(file => form.append("files", file));
     const result = await api("/api/files", {method:"POST", body:form});
+    if(!(result.files||[]).length) throw new Error("Сервер не принял файл.");
     pendingFiles.push(...(result.files || []));
     renderFilePreview();
     (result.warnings || []).forEach(toast);
@@ -816,7 +821,9 @@ async function sendMessage() {
       method:"POST",
       body:JSON.stringify({
         content,
-        file_ids:pendingFiles.map(file => file.id)
+        file_ids:pendingFiles.map(file => file.id),
+        temperature:generationSettings.temperature,
+        effort:generationSettings.effort
       })
     });
     $("composerInput").value=""; autoGrow(); pendingFiles=[]; renderFilePreview();
@@ -853,51 +860,34 @@ function updateLastAssistant(content, replace=false) {
   scrollBottom();
 }
 
-function streamRequest(requestId) {
-  return new Promise(resolve => {
-    if (currentStream) currentStream.close();
-    let finished = false;
-    let pollTimer = null;
-
-    const finish = async () => {
-      if (finished) return;
-      finished = true;
-      if (pollTimer) clearInterval(pollTimer);
-      if (currentStream) { currentStream.close(); currentStream=null; }
-      generating=false; currentRequestId=null; setSendState(false);
-      try {
-        renderThread(await api(`/api/messages?chat_id=${encodeURIComponent(currentChatId)}`));
-        await refreshCurrentChat();
-      } catch {}
+function ensureThinkingBlock(){
+  let box=$("threadInner").querySelector(".thinking-live");
+  if(!box){
+    box=document.createElement("div");box.className="thinking-live";
+    box.innerHTML='<div class="th-head"><span class="thinking-orb"></span><span>Размышление</span><button class="thinking-toggle" type="button">Скрыть</button></div><div class="th-body"></div>';
+    $("threadInner").appendChild(box);
+    box.querySelector(".thinking-toggle").onclick=function(e){e.stopPropagation();box.classList.toggle("hidden");e.currentTarget.textContent=box.classList.contains("hidden")?"Показать":"Скрыть";};
+    box.querySelector(".th-head").onclick=function(){box.classList.toggle("hidden");};
+    if(!generationSettings.showThinking)box.classList.add("hidden");
+  }
+  return box;
+}
+function appendThinking(text){const box=ensureThinkingBlock();const body=box.querySelector(".th-body");body.textContent+=(text||"");body.scrollTop=body.scrollHeight;scrollBottom();}
+function streamRequest(requestId){
+  return new Promise(function(resolve){
+    if(currentStream)currentStream.close();
+    currentStream=new EventSource("/api/requests/"+requestId+"/stream");
+    currentStream.addEventListener("thinking",function(event){appendThinking(JSON.parse(event.data).text||"");});
+    currentStream.addEventListener("delta",function(event){updateLastAssistant(JSON.parse(event.data).text||"");});
+    currentStream.addEventListener("replace",function(event){const text=JSON.parse(event.data).text||"";const a=$("threadInner").querySelector(".msg.assistant:last-child");if(a)a.dataset.raw=text;updateLastAssistant("",true);});
+    const finish=async function(){
+      if(currentStream){currentStream.close();currentStream=null;}
+      generating=false;currentRequestId=null;setSendState(false);
+      try{renderThread(await api("/api/messages?chat_id="+encodeURIComponent(currentChatId)));await refreshCurrentChat();}catch(e){}
       resolve();
     };
-
-    currentStream = new EventSource(`/api/requests/${requestId}/stream`);
-    currentStream.addEventListener("delta", event => {
-      try { updateLastAssistant(JSON.parse(event.data).text || ""); } catch {}
-    });
-    currentStream.addEventListener("replace", event => {
-      try {
-        const text=JSON.parse(event.data).text || "";
-        const a=$("threadInner").querySelector(".msg.assistant:last-child");
-        if(a) a.dataset.raw=text;
-        updateLastAssistant("",true);
-      } catch {}
-    });
-    ["completed","failed","cancelled","done","error"].forEach(type => currentStream.addEventListener(type, finish));
-
-    // SSE can be interrupted by a proxy/browser. Poll the request state so
-    // generating never remains stuck and the next message can be sent.
-    pollTimer = setInterval(async () => {
-      try {
-        const state = await api(`/api/requests/${requestId}`);
-        if (["completed","failed","cancelled"].includes(state.status)) await finish();
-      } catch {}
-    }, 2000);
-
-    currentStream.onerror = () => {
-      // Do not finish immediately: the polling fallback checks the real DB state.
-    };
+    ["completed","failed","cancelled","done","error"].forEach(function(type){currentStream.addEventListener(type,finish);});
+    currentStream.onerror=function(){if(!currentStream||currentStream.readyState===EventSource.CLOSED)finish();};
   });
 }
 
@@ -2546,6 +2536,8 @@ function renderThread(messages) {
     return;
   }
   inner.innerHTML = messages.map(messageHtml).join("");
+  enhanceCodeBlocks();
+  rerenderMath();
   scrollBottom();
 }
 
