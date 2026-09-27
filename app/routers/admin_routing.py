@@ -358,20 +358,11 @@ async def apply_runtime_env(
     admin: User = Depends(_admin),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    """Apply persistent runtime ENV.
+    """Apply a simple model catalog.
 
-    New format:
-      MODEL_X_* = model definition
-      CLUSTER_1_TITLE=...
-      CLUSTER_1_GENERATION=...
-      CLUSTER_1_CONTINUE=...
-      CLUSTER_2_* = ...
-      CLUSTER_ACTIVE=1
-
-    A cluster is a complete routing bundle: title + main generation +
-    continuation. Only CLUSTER_ACTIVE is attached to the three task routes;
-    all declared clusters remain saved and can be activated without rebuilding
-    the model definitions.
+    Each MODEL_* definition is a complete model profile. The model selected
+    by the user is used for all three operations: main answer, title and
+    follow-up suggestions. There are no clusters/fallback chains in this UI.
     """
     enforce_csrf(request, settings)
     content = str(payload.get("content") or "")
@@ -392,41 +383,34 @@ async def apply_runtime_env(
         values[key] = value
 
     import re
-
     model_keys = sorted(
         {m.group(1) for key in values for m in [re.match(r"^MODEL_(.+)_ID$", key)] if m},
     )
     if not model_keys:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Нужна хотя бы одна MODEL_<id>_ID.")
 
-    # Runtime values are also exposed to the process immediately.
+    # Expose values to the current process immediately and persist them.
     for key, value in values.items():
         os.environ[key] = value
-    for key, value in values.items():
-        if key.startswith("MODEL_") and key.endswith("_KEY"):
-            os.environ["CHATSTUDIO_RUNTIME_" + key] = value
 
     model_by_key: dict[str, ModelConfig] = {}
     for model_key in model_keys:
         prefix = f"MODEL_{model_key}_"
-        model_name = values.get(prefix + "NAME", model_key)
+        model_name = values.get(prefix + "NAME", model_key).strip()
         real_id = values[prefix + "ID"].strip()
         base_url = values.get(prefix + "BASE", "").strip().rstrip("/")
         api_key = values.get(prefix + "KEY", "")
         file_info = values.get(prefix + "FILE_INFO", "").strip()
 
         if not base_url.startswith(("http://", "https://")):
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                f"{model_key}: BASE должен начинаться с http:// или https://.",
-            )
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{model_key}: BASE должен начинаться с http:// или https://.")
         if not real_id:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"{model_key}: ID не может быть пустым.")
 
         provider_name = f"runtime-{model_key}"
-        provider = (
-            await session.execute(select(Provider).where(Provider.name == provider_name))
-        ).scalar_one_or_none()
+        provider = (await session.execute(
+            select(Provider).where(Provider.name == provider_name)
+        )).scalar_one_or_none()
 
         if provider is None:
             provider = Provider(
@@ -444,11 +428,9 @@ async def apply_runtime_env(
 
         os.environ[provider.api_key_env] = api_key
 
-        model = (
-            await session.execute(
-                select(ModelConfig).where(ModelConfig.provider_id == provider.id)
-            )
-        ).scalar_one_or_none()
+        model = (await session.execute(
+            select(ModelConfig).where(ModelConfig.provider_id == provider.id)
+        )).scalar_one_or_none()
 
         if model is None:
             model = ModelConfig(
@@ -462,13 +444,11 @@ async def apply_runtime_env(
                 enabled=True,
             )
             session.add(model)
-            await session.flush()
         else:
             model.display_name = model_name
             model.model_name = real_id
             model.request_prefix = file_info
             model.enabled = True
-
         model_by_key[model_key] = model
 
     active_provider_names = {f"runtime-{k}" for k in model_keys}
@@ -476,109 +456,85 @@ async def apply_runtime_env(
         if provider.name.startswith("runtime-"):
             provider.enabled = provider.name in active_provider_names
 
-    # Parse complete clusters. Each cluster owns three independent fallback
-    # chains, one for each task.
-    cluster_numbers: set[int] = set()
-    for key in values:
-        match = re.match(r"^CLUSTER_(\d+)_(TITLE|GENERATION|CONTINUE)$", key)
-        if match:
-            cluster_numbers.add(int(match.group(1)))
+    # Persist only the simple model catalog. Old routing sets may remain in DB,
+    # but direct model selection in ai_router takes precedence for every task.
+    path = settings.data_dir / "runtime.env"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content.strip() + "\n", encoding="utf-8")
 
-    # Backward compatibility with the old single-cluster ENV format.
-    if not cluster_numbers and any(k in values for k in ("CLUSTER_GENERATION", "CLUSTER_TITLE", "CLUSTER_CONTINUE")):
-        cluster_numbers.add(1)
-        values.setdefault("CLUSTER_1_GENERATION", values.get("CLUSTER_GENERATION", ""))
-        values.setdefault("CLUSTER_1_TITLE", values.get("CLUSTER_TITLE", ""))
-        values.setdefault("CLUSTER_1_CONTINUE", values.get("CLUSTER_CONTINUE", ""))
-
-    if not cluster_numbers:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            "Нужен хотя бы один кластер: CLUSTER_1_TITLE, CLUSTER_1_GENERATION, CLUSTER_1_CONTINUE.",
-        )
-
-    active_cluster = str(values.get("CLUSTER_ACTIVE", "1")).strip()
-    if not active_cluster.isdigit() or int(active_cluster) not in cluster_numbers:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            f"CLUSTER_ACTIVE должен указывать на существующий кластер: {sorted(cluster_numbers)}.",
-        )
-
-    task_names = {
-        "GENERATION": "main_generation",
-        "TITLE": "title_generation",
-        "CONTINUE": "suggestions_generation",
-    }
-
-    # Build/replace a routing set for every declared cluster.
-    for cluster_number in sorted(cluster_numbers):
-        for task_suffix, task_name in task_names.items():
-            raw_chain = values.get(f"CLUSTER_{cluster_number}_{task_suffix}", "")
-            chain = [x.strip() for x in raw_chain.split(",") if x.strip()]
-            if not chain:
-                raise HTTPException(
-                    status.HTTP_400_BAD_REQUEST,
-                    f"CLUSTER_{cluster_number}_{task_suffix} должен содержать хотя бы одну модель.",
-                )
-
-            for key in chain:
-                if key not in model_by_key:
-                    raise HTTPException(
-                        status.HTTP_400_BAD_REQUEST,
-                        f"CLUSTER_{cluster_number}_{task_suffix}: модель {key} не найдена.",
-                    )
-
-            route_name = f"runtime-cluster-{cluster_number}-{task_suffix.lower()}"
-            rs = (
-                await session.execute(select(RoutingSet).where(RoutingSet.name == route_name))
-            ).scalar_one_or_none()
-            if rs is None:
-                rs = RoutingSet(name=route_name)
-                session.add(rs)
-                await session.flush()
-
-            existing = (
-                await session.execute(
-                    select(RoutingSetModel).where(RoutingSetModel.routing_set_id == rs.id)
-                )
-            ).scalars().all()
-            for row in existing:
-                await session.delete(row)
-            await session.flush()
-
-            for priority, key in enumerate(chain):
-                session.add(
-                    RoutingSetModel(
-                        routing_set_id=rs.id,
-                        model_config_id=model_by_key[key].id,
-                        priority=priority,
-                    )
-                )
-
-            # Only the active cluster is attached to the live task route.
-            if cluster_number == int(active_cluster):
-                tr = (
-                    await session.execute(select(TaskRoute).where(TaskRoute.task_name == task_name))
-                ).scalar_one_or_none()
-                if tr is None:
-                    tr = TaskRoute(task_name=task_name, routing_set_id=rs.id, enabled=True)
-                    session.add(tr)
-                else:
-                    tr.routing_set_id = rs.id
-                    tr.enabled = True
-
-    settings.data_dir.mkdir(parents=True, exist_ok=True)
-    (settings.data_dir / "runtime.env").write_text(content, encoding="utf-8")
     await session.commit()
-
     return {
         "ok": True,
         "models": len(model_keys),
-        "clusters": sorted(cluster_numbers),
-        "active_cluster": int(active_cluster),
+        "model_ids": [model_by_key[k].id for k in model_keys],
         "restart_required": False,
     }
 
+
+@router.get("/model-status")
+async def model_status(
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Health dots from the last 10 requests involving each model.
+
+    100% success = green, exactly 90% = yellow, below 90% = red.
+    With fewer than 10 observations the percentage is calculated from the
+    available observations; no observations are treated as green.
+    """
+    result = await session.execute(
+        select(ModelConfig, Provider)
+        .join(Provider, Provider.id == ModelConfig.provider_id)
+        .where(ModelConfig.enabled.is_(True), Provider.enabled.is_(True))
+        .order_by(ModelConfig.created_at.asc())
+    )
+    models = result.all()
+
+    recent_result = await session.execute(
+        select(AIRequest)
+        .where(AIRequest.task.in_(["main_generation", "title_generation", "suggestions_generation"]))
+        .order_by(AIRequest.created_at.desc())
+        .limit(200)
+    )
+    recent = recent_result.scalars().all()
+
+    out = []
+    for model, provider in models:
+        observations: list[bool] = []
+        for req in recent:
+            matched = req.model == model.display_name or req.provider == provider.name
+            attempts = []
+            if req.fallback_attempts_json:
+                try:
+                    attempts = json.loads(req.fallback_attempts_json) or []
+                except Exception:
+                    attempts = []
+            for attempt in attempts:
+                if attempt.get("provider") == provider.name or attempt.get("model") == model.display_name:
+                    matched = True
+                    observations.append(False)
+            if matched and not attempts:
+                observations.append(req.status == "completed")
+            elif matched and req.model == model.display_name:
+                observations.append(req.status == "completed")
+            if len(observations) >= 10:
+                break
+
+        observations = observations[:10]
+        total = len(observations)
+        success_count = sum(1 for ok in observations if ok)
+        rate = (success_count / total * 100) if total else 100.0
+        status_name = "green" if total == 0 or rate == 100 else ("yellow" if rate >= 90 else "red")
+        out.append({
+            "id": model.id,
+            "display_name": model.display_name,
+            "status": status_name,
+            "success_rate": round(rate, 1),
+            "sample_size": total,
+        })
+
+    return {"models": out, "window": 10}
+}
 
 # --------------------------------------------------------------------------
 # Routing sets (раздел 28, 33)
