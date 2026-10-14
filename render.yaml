@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: chtstd-python-sandbox
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn bot:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: ALLOWED_USER_IDS
+        sync: false
+      - key: TASK_TIMEOUT_SECONDS
+        value: "12"
+      - key: TASK_MEMORY_MB
+        value: "256"
+      - key: MAX_QUEUE_SIZE
+        value: "5"
+      - key: INPUT_TIMEOUT_SECONDS
+        value: "120"

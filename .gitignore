@@ -1,10 +1,11 @@
+.env
+.env.*
+!.env.example
 __pycache__/
 *.py[cod]
 .pytest_cache/
-.git/
-.env
+.venv/
+venv/
 data/
 uploads/
-*.db
-*.sqlite
-*.sqlite3
+*.log
